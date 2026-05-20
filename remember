@@ -1,0 +1,10 @@
+src :
+	dataset.py : windows.csv 읽기
+	model.py : LSTM Autoencoder
+	train.py : 학습 loop
+	evalutate.py : 성능확인
+ -> 연구내용 / AI Logic
+
+venv/ : 
+	파이썬 가상환경
+
