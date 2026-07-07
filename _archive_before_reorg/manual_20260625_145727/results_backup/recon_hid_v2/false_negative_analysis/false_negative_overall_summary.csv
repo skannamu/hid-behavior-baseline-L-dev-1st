@@ -1,0 +1,3 @@
+method,total_attack,detected,false_negative,detection_rate_percent,false_negative_rate_percent
+OR95 balanced,384,175,209,45.57291666666667,54.427083333333336
+OR90 aggressive,384,282,102,73.4375,26.5625

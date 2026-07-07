@@ -1,0 +1,2 @@
+threshold,tp,tn,fp,fn,accuracy,precision,recall_attack_detection_rate,f1,normal_false_positive_rate
+0.5,109,10013,0,275,0.973550062518034,1.0,0.2838541666666667,0.4421906693711968,0.0
