@@ -27,6 +27,16 @@ DEFAULT_DETECTORS: Dict[str, DetectorConfig] = {
         model_path=Path("checkpoints/recon_hid_v2_round1.pt"),
         description="Round 1 ReCon-HID v2 detector trained with V5 hard negatives",
     ),
+    "d2": DetectorConfig(
+        name="d2",
+        model_path=Path("checkpoints/recon_hid_v2_round2.pt"),
+        description="Round 2 ReCon-HID detector trained with V6 hard negatives",
+    ),
+    "d3": DetectorConfig(
+    name="d3",
+    model_path=Path("checkpoints/recon_hid_v2_round3.pt"),
+    description="Round 3 ReCon-HID detector trained with V7 hard negatives",
+    ),
 }
 
 

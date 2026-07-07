@@ -30,10 +30,17 @@ class DetectorOracleV2:
     ReCon-HID v2 Detector Oracle
 
     역할:
-    - ReCon-HID v2 모델 로드
+    - ReCon-HID v2 모델 로드 즉 D0를 불러와서
+FeatureGuideHumanMimic v4를 넣고
+reconstruction error,
+classifier probability,
+prototype probability,
+latent distance,
+OR95 / OR90 판단을 계산하는 코드
     - normal 기준 threshold 계산
     - target CSV에 대해 detector score 계산
     - classifier / prototype / reconstruction / latent distance / fusion 판단 반환
+    즉  D0에 V4넣어서 시험 보는 코드
     """
 
     def __init__(
