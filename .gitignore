@@ -8,3 +8,13 @@ results/
 
 .vscode/
 .DS_Store
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Local archives
+_archive/
+_archive_before_reorg/
+
+# Large raw/generated outputs can be archived locally
