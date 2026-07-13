@@ -1,0 +1,10 @@
+attack_set,signal,samples,detected,detection_rate,bypass_rate
+V8_hardest,recon_90,500,0,0.0,100.0
+V8_hardest,recon_95,500,0,0.0,100.0
+V8_hardest,latent_dist_90,500,500,100.0,0.0
+V8_hardest,latent_dist_95,500,500,100.0,0.0
+V8_hardest,classifier_only,500,500,100.0,0.0
+V8_hardest,prototype_only,500,500,100.0,0.0
+V8_hardest,hybrid_or90,500,500,100.0,0.0
+V8_hardest,hybrid_or95,500,500,100.0,0.0
+V8_hardest,hybrid_or95_with_latent,500,500,100.0,0.0

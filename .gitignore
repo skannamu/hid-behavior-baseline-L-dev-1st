@@ -8,3 +8,7 @@ results/
 
 .vscode/
 .DS_Store
+# Large research datasets/checkpoints excluded from GitHub
+paper_artifacts/datasets/**/*.csv
+paper_artifacts/**/*.pt
+paper_artifacts/**/*.pkl

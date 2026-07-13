@@ -1,0 +1,4 @@
+| candidate_path | guided_train_path | out_path | candidate_rows | guided_train_rows | random_rows | seed |
+| --- | --- | --- | --- | --- | --- | --- |
+| data/attack/AdaptiveMimic_v6_candidate/v6_candidates.csv | data/attack/AdaptiveMimic_v6_D1_OR90_bypass_train/v6_or90_train.csv | data/attack/RandomMatched_D3_train/v6_random_matched_train.csv | 3600 | 1944 | 1944 | 42 |
+| data/attack/AdaptiveMimic_v7_candidate/v7_candidates.csv | data/attack/AdaptiveMimic_v7_D2_OR90_bypass_train/v7_or90_train.csv | data/attack/RandomMatched_D3_train/v7_random_matched_train.csv | 15000 | 201 | 201 | 43 |

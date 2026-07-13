@@ -1,0 +1,6 @@
+| round | generated_candidates | selected_or_bypass | yield_rate | note |
+| --- | --- | --- | --- | --- |
+| D0 → V5 | 1672 | 1000 | 59.81 | selected constrained OR95 bypass |
+| D1 → V6 | 3600 | 2431 | 67.53 | D1 OR90 bypass |
+| D2 → V7 | 15000 | 252 | 1.68 | D2 OR90 bypass |
+| D3 → V8 | 15000 | 0 | 0.00 | no D3 OR90/OR95 bypass found; top-500 hardest no-bypass separately saved |
