@@ -1,0 +1,7 @@
+{
+  "collector_version": "hid_behavior_collector_v4_1_feature_schema_v2_draft1",
+  "fix": "Convert SIGINT/SIGBREAK to WM_CLOSE for graceful finalization",
+  "python_compile_returncode": 0,
+  "unit_test_returncode": 0,
+  "windows_exe_built": false
+}

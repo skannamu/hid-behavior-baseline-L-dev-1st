@@ -12,3 +12,72 @@ results/
 paper_artifacts/datasets/**/*.csv
 paper_artifacts/**/*.pt
 paper_artifacts/**/*.pkl
+
+# Feature Schema v2 sensitive datasets
+data/normal/raw_sessions/feature_v2*/
+data/attack/raw_sessions/feature_v2*/
+dataset_v2/
+
+# Local environments
+venv/
+.venv/
+
+# HID Behavior AI local artifacts
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+/venv/
+/.venv/
+/env/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Runtime datasets
+/data/normal/raw_sessions/
+/data/attack/generated/
+/data/processed/
+/dataset_v2/
+**/dataset_v2/
+
+# Models and generated experiment outputs
+/checkpoints/
+/experiments/
+/figures/
+/reports/
+/results/
+
+# Local archives and installation bundles
+/*.zip
+/*.tar
+/*.tar.gz
+/_cleanup_backup_*/
+/_legacy_framework_cleanup_*/
+/_snapshots/
+*.bak
+*.bak_*
+*.bak.*
+
+# Collector build outputs
+/collectors/**/build/
+/collectors/**/dist/
+
+# Temporary files
+*.tmp
+*.log

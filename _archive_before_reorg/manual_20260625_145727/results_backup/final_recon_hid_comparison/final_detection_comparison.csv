@@ -1,7 +1,0 @@
-method,detection_rate,normal_fpr,type
-LSTM AE 95%,4.43,5.0,baseline
-LSTM Classifier,28.39,0.0,baseline
-ReCon-HID v1 OR95,21.09,5.0,ablation
-ReCon-HID v2 recon95,36.46,5.0,ablation
-ReCon-HID v2 OR95,45.57,5.0,proposed
-ReCon-HID v2 OR90,73.44,10.0,proposed

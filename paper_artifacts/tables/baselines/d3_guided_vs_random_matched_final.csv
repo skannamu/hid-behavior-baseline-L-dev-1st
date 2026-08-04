@@ -1,7 +1,0 @@
-attack_set,D3_guided_OR95_detection,D3_random_matched_OR95_detection,OR95_detection_gap,D3_guided_OR90_bypass,D3_random_matched_OR90_bypass,OR90_bypass_gap
-V4,100.0,100.0,0.0,0.0,0.0,0.0
-V5_test,100.0,100.0,0.0,0.0,0.0,0.0
-V6_test,100.0,100.0,0.0,0.0,0.0,0.0
-V7_test,100.0,76.47,23.53,0.0,23.53,23.53
-V8_candidate,100.0,99.34,0.66,0.0,0.66,0.66
-V8_hardest,100.0,85.2,14.8,0.0,14.8,14.8

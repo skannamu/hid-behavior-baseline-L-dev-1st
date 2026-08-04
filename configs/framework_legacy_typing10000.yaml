@@ -1,0 +1,70 @@
+experiment_name: framework_legacy_typing10000
+normal_dataset_id: legacy_typing10000
+
+paths:
+  normal_raw_root: data/normal/raw_sessions/legacy_typing10000
+  normal_window_csv: data/processed/legacy_typing10000_windows.csv
+  attack_generated_root: data/attack/generated
+  checkpoints_root: checkpoints
+  experiments_root: experiments/framework_legacy_typing10000
+
+window:
+  window_size: 50
+  stride: 1
+  feature_dim: 15
+
+training:
+  split_mode: session
+  train_ratio: 0.8
+  valid_ratio: 0.1
+  test_ratio: 0.1
+  batch_size: 128
+  epochs: 10
+  learning_rate: 0.001
+
+thresholds:
+  quantiles: [0.90, 0.95, 0.99]
+  primary: 0.95
+
+framework:
+  rounds: 3
+  defenders: [D0, D1, D2, D_final]
+  attack_generation_mode: adaptive_mimic
+  hardening_mode: hard_negative_fusion
+
+runtime:
+  decision_mode: threshold
+  output_format: json
+
+adaptive_loop:
+  enabled: true
+  min_rounds: 2
+  max_rounds: 5
+  target_attack_detection_rate: 0.95
+  max_normal_false_positive_rate: 0.05
+  max_bypass_rate: 0.05
+  patience: 3
+  min_improvement: 0.005
+
+
+defender_aware_generator:
+  enabled: true
+  pool_multiplier: 8
+  selected_candidates: 300
+
+decision_policy:
+  mode: fpr_constrained
+  target_attack_detection_rate: 0.95
+  max_normal_false_positive_rate: 0.05
+  prefer_methods:
+    - pred_or95_with_latent
+    - pred_or95
+    - pred_classifier
+    - pred_recon_95
+    - pred_prototype
+    - pred_or90
+
+score_fusion_optimizer:
+  enabled: true
+  search_mode: fpr_constrained
+

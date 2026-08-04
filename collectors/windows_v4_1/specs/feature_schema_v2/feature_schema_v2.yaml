@@ -1,0 +1,358 @@
+schema:
+  name: hid_behavior_feature_schema
+  version: "2.0.0-draft.1"
+  status: draft
+  purpose: behavior-only HID BadUSB detection
+  sequence_unit: completed_physical_keystroke
+  sequence_order: press_timestamp_ns_ascending
+  window_size: 50
+  stride: 1
+  time_source: monotonic_high_resolution
+  timestamp_storage: integer_nanoseconds
+  feature_time_unit: seconds
+  model_numeric_dtype: float32
+  pause_threshold_seconds: 0.5
+  schema_hash_algorithm: sha256
+
+raw_event_schema:
+  required_fields:
+    - session_id
+    - raw_event_index
+    - timestamp_ns
+    - device_id_session_local
+    - make_code
+    - extended_flag
+    - vkey
+    - message
+    - action
+  action_values: [down, up]
+  notes:
+    - Raw events are the source of truth.
+    - Wall-clock time belongs in session metadata, not behavioral interval calculations.
+    - Direct text content is not recorded.
+
+keystroke_pairing:
+  physical_key_id:
+    fields: [device_id_session_local, make_code, extended_flag]
+  duplicate_down_policy:
+    behavior: increment_repeat_count
+    create_new_keystroke: false
+  unmatched_up_policy:
+    behavior: record_quality_event_and_ignore_for_model
+  incomplete_key_at_session_end_policy:
+    behavior: record_quality_event_and_exclude_from_windows
+  modifier_snapshot_time: key_down
+  state_output_order: press_timestamp_ns_ascending
+
+state_schema:
+  role: canonical_keystroke_level_observation
+  identifiers:
+    - session_id
+    - keystroke_index
+    - source_raw_down_index
+    - source_raw_up_index
+    - device_id_session_local
+    - make_code
+    - extended_flag
+    - vkey
+    - key_category
+  timestamps:
+    - press_timestamp_ns
+    - release_timestamp_ns
+  diagnostic_fields:
+    - repeat_count
+    - pairing_status
+    - quality_flags
+    - release_interval_s
+    - overlap_union_duration_s
+    - modifier_count_at_press
+    - command_shortcut_flag
+  labels:
+    - participant_id
+    - scenario
+    - input_source
+    - label
+
+sequence_model_features:
+  - name: hold_time_s
+    dtype: float32
+    level: keystroke
+    definition: "(release_timestamp_ns - press_timestamp_ns) / 1e9"
+    semantic_range: "[0, +inf)"
+    negative_allowed: false
+    first_keystroke_policy: normal
+    decision: keep
+    rationale: direct key dwell behavior
+
+  - name: press_interval_s
+    dtype: float32
+    level: keystroke_transition
+    definition: "(press_timestamp_ns[i] - press_timestamp_ns[i-1]) / 1e9"
+    semantic_range: "[0, +inf)"
+    negative_allowed: false
+    first_keystroke_policy: excluded_from_window_generation_until_valid
+    decision: rename_and_keep
+    replaces: press_to_press_time
+
+  - name: signed_flight_time_s
+    dtype: float32
+    level: keystroke_transition
+    definition: "(press_timestamp_ns[i] - release_timestamp_ns[i-1]) / 1e9"
+    semantic_range: "(-inf, +inf)"
+    negative_allowed: true
+    negative_meaning: current key pressed before previous press-ordered key was released
+    first_keystroke_policy: excluded_from_window_generation_until_valid
+    decision: redefine_and_keep
+    replaces: flight_time
+
+  - name: overlap_fraction
+    dtype: float32
+    level: keystroke
+    definition: "union duration within current hold interval covered by at least one other held physical key, divided by hold duration"
+    semantic_range: "[0, 1]"
+    negative_allowed: false
+    zero_hold_policy: set_zero_and_add_quality_flag
+    decision: replace_formula_and_keep
+    replaces: overlap_ratio
+
+  - name: concurrent_keys_at_press
+    dtype: float32
+    source_dtype: integer
+    level: keystroke
+    definition: "number of distinct other physical keys already down immediately before current key-down"
+    semantic_range: "{0, 1, 2, ...}"
+    decision: redefine_and_keep
+    replaces: simultaneous_key_count
+
+  - name: release_inversion_flag
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke_transition
+    definition: "1 if release_timestamp_ns[i] < release_timestamp_ns[i-1] for press-ordered keystrokes, else 0"
+    semantic_range: "{0, 1}"
+    first_keystroke_policy: excluded_from_window_generation_until_valid
+    decision: add
+
+  - name: correction_key_flag
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "1 if current key is Backspace or Delete, else 0"
+    semantic_range: "{0, 1}"
+    decision: add
+    replaces_timestep_feature: correction_ratio
+
+  - name: repeat_flag
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "1 if repeat_count > 0, else 0"
+    semantic_range: "{0, 1}"
+    decision: add_from_existing_observation
+
+  - name: shift_at_press
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "Shift state captured immediately before/current key-down"
+    semantic_range: "{0, 1}"
+    decision: add
+    replaces_part_of: modifier_count
+
+  - name: ctrl_at_press
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "Ctrl state captured immediately before/current key-down"
+    semantic_range: "{0, 1}"
+    decision: add
+    replaces_part_of: modifier_count
+
+  - name: alt_at_press
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "Alt state captured immediately before/current key-down"
+    semantic_range: "{0, 1}"
+    decision: add
+    replaces_part_of: modifier_count
+
+  - name: meta_at_press
+    dtype: float32
+    source_dtype: boolean
+    level: keystroke
+    definition: "Windows/Meta state captured immediately before/current key-down"
+    semantic_range: "{0, 1}"
+    decision: add
+    replaces_part_of: modifier_count
+
+window_context_features:
+  - name: press_rate_hz
+    dtype: float32
+    definition: "(N - 1) / ((last_press_timestamp_ns - first_press_timestamp_ns) / 1e9)"
+    semantic_range: "[0, +inf)"
+    decision: move_to_window_context
+    replaces: keys_per_second
+
+  - name: active_press_interval_median_s
+    dtype: float32
+    definition: "median of press_interval_s values strictly below pause_threshold_seconds"
+    semantic_range: "[0, pause_threshold_seconds)"
+    empty_policy: 0.0
+    decision: add
+
+  - name: active_press_interval_robust_cv
+    dtype: float32
+    definition: "1.4826 * MAD(active press intervals) / max(median(active press intervals), epsilon)"
+    semantic_range: "[0, +inf)"
+    epsilon: 1.0e-6
+    empty_policy: 0.0
+    decision: replace
+    replaces: timing_variance
+
+  - name: pause_rate
+    dtype: float32
+    definition: "count(press_interval_s >= pause_threshold_seconds) / (N - 1)"
+    semantic_range: "[0, 1]"
+    decision: replace_timestep_pause_feature
+
+  - name: pause_time_fraction
+    dtype: float32
+    definition: "sum(press_interval_s values >= pause_threshold_seconds) / sum(all valid press_interval_s)"
+    semantic_range: "[0, 1]"
+    zero_denominator_policy: 0.0
+    decision: add
+
+  - name: max_pause_interval_s
+    dtype: float32
+    definition: "maximum press_interval_s >= pause_threshold_seconds, otherwise 0"
+    semantic_range: "[0, +inf)"
+    decision: add
+
+  - name: mean_burst_length_keys
+    dtype: float32
+    definition: "mean number of keystrokes in bursts segmented by press_interval_s >= pause_threshold_seconds"
+    semantic_range: "[1, N]"
+    decision: add
+    replaces: burst_density
+
+  - name: max_burst_length_keys
+    dtype: float32
+    definition: "maximum number of keystrokes in bursts segmented by press_interval_s >= pause_threshold_seconds"
+    semantic_range: "[1, N]"
+    decision: add
+    replaces: burst_length
+
+  - name: correction_rate
+    dtype: float32
+    definition: "sum(correction_key_flag) / N"
+    semantic_range: "[0, 1]"
+    decision: move_to_window_context
+    replaces: correction_ratio
+
+  - name: command_shortcut_rate
+    dtype: float32
+    definition: "fraction of non-modifier keystrokes pressed while Ctrl, Alt, or Meta is active; Shift alone is not a command shortcut"
+    semantic_range: "[0, 1]"
+    decision: add_from_modifier_snapshot
+    replaces: shortcut_flag_rolling_use
+
+  - name: overlap_key_rate
+    dtype: float32
+    definition: "count(overlap_fraction > 0) / N"
+    semantic_range: "[0, 1]"
+    decision: add
+
+  - name: release_inversion_rate
+    dtype: float32
+    definition: "sum(release_inversion_flag over valid transitions) / (N - 1)"
+    semantic_range: "[0, 1]"
+    decision: add
+
+excluded_from_default_model:
+  - name: release_to_release_time
+    state_retention: diagnostic_only
+    reason: exactly derivable from press_interval and adjacent hold times
+
+  - name: modifier_count
+    state_retention: derived_diagnostic_only
+    reason: loses modifier identity and duplicates modifier bits
+
+  - name: shortcut_flag
+    state_retention: derived_diagnostic_only
+    reason: derived from Ctrl/Alt/Meta-at-press and key type
+
+  - name: correction_ratio
+    state_retention: false
+    reason: rolling value duplicated across timesteps; replaced by correction_key_flag and window correction_rate
+
+  - name: keys_per_second
+    state_retention: false
+    reason: rolling value duplicated across timesteps; replaced by window press_rate_hz
+
+  - name: burst_density
+    state_retention: false
+    reason: legacy implementation equals keys_per_second and generator semantics conflict
+
+  - name: timing_variance
+    state_retention: false
+    reason: legacy implementation computes standard deviation and is outlier-sensitive
+
+  - name: timing_entropy
+    state_retention: analysis_optional
+    reason: unstable under small rolling samples and arbitrary binning
+
+  - name: pause_duration
+    state_retention: false
+    reason: legacy implementation duplicates positive signed flight information
+
+  - name: current_key_category_id
+    state_retention: category_string_or_token_only
+    reason: scalar IDs create false ordinal geometry
+
+optional_ablation_branch:
+  key_category_embedding:
+    enabled_by_default: false
+    categories:
+      - LETTER
+      - DIGIT
+      - SPACE
+      - ENTER
+      - BACKSPACE
+      - DELETE
+      - MODIFIER
+      - FUNCTION
+      - ARROW
+      - PUNCTUATION
+      - OTHER
+    rule: never pass category token as a continuous scalar
+
+window_row_metadata:
+  - feature_schema_version
+  - schema_hash
+  - participant_id
+  - session_id
+  - window_id
+  - start_keystroke_index
+  - end_keystroke_index
+  - label
+  - scenario
+  - input_source
+
+window_column_layout:
+  sequence_columns: "t{0..49}_{sequence_model_feature_name}"
+  context_columns: "ctx_{window_context_feature_name}"
+
+data_split_policy:
+  normal_group_key: [participant_id, session_id]
+  synthetic_attack_group_key: [attack_trial_id, lineage_id]
+  prohibited:
+    - random_window_row_split
+    - calibration_on_final_test
+    - threshold_optimization_on_final_test
+
+compatibility:
+  legacy_schema: "1.x"
+  legacy_framework: "8.1"
+  new_framework_target: "9.x"
+  mixed_schema_loading: reject
