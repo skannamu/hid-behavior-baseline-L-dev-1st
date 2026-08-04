@@ -1,0 +1,31 @@
+framework:
+  version: "9.0.0-draft.1"
+  feature_schema_version: "2.0.0-draft.1"
+  schema_hash: "cd169ba9f1f2a37ee2aab29ba33fff32f2c386c9e819bd01ed2dbd85984e20b1"
+
+data:
+  window_size: 50
+  stride: 1
+  sequence_feature_count: 12
+  context_feature_count: 12
+  strict_header_order: true
+  reject_mixed_schema: true
+  reject_random_window_split: true
+
+split:
+  group_key: ["participant_id", "session_id"]
+  train_ratio: 0.70
+  calibration_ratio: 0.15
+  test_ratio: 0.15
+  seed: 20260804
+  minimum_independent_groups: 3
+
+model:
+  sequence_input_dim: 12
+  context_input_dim: 12
+  category_branch_enabled: false
+
+evaluation:
+  threshold_source: calibration_only
+  fusion_policy_source: calibration_only
+  final_test_is_untouched: true

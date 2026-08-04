@@ -1,0 +1,10 @@
+{
+  "package": "feature_schema_v2_draft01",
+  "schema_version": "2.0.0-draft.1",
+  "schema_sha256": "cd169ba9f1f2a37ee2aab29ba33fff32f2c386c9e819bd01ed2dbd85984e20b1",
+  "files": [
+    "feature_schema_v2.yaml",
+    "FEATURE_SCHEMA_V2_SPEC.md",
+    "feature_schema_v2_test_vectors.json"
+  ]
+}

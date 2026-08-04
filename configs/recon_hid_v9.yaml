@@ -1,0 +1,37 @@
+model:
+  name: "ReConHIDV9"
+  version: "9.0.0-draft.1"
+
+  feature_schema_version: "2.0.0-draft.1"
+  schema_hash: "cd169ba9f1f2a37ee2aab29ba33fff32f2c386c9e819bd01ed2dbd85984e20b1"
+
+  sequence_input_dim: 12
+  context_input_dim: 12
+  window_size: 50
+
+  sequence_hidden_dim: 64
+  sequence_latent_dim: 24
+  context_hidden_dim: 32
+  context_latent_dim: 12
+  fused_latent_dim: 32
+  sequence_num_layers: 1
+  dropout: 0.10
+  bidirectional_encoder: false
+  classifier_hidden_dim: 32
+
+normalization:
+  type: "median_iqr"
+  fit_on: "train_only"
+  preserve_binary_sequence_features: true
+
+loss:
+  sequence_reconstruction_weight: 1.0
+  context_reconstruction_weight: 0.5
+  classifier_weight: 1.0
+  latent_l2_weight: 0.0001
+
+protocol:
+  training_split: "train"
+  threshold_and_fusion_split: "calibration"
+  final_metrics_split: "untouched_test"
+  pilot_single_session_use: "execution_smoke_only"

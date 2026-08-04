@@ -1,0 +1,44 @@
+stage:
+  name: "normal_pretraining"
+  version: "9.0.0-draft.1"
+
+data:
+  minimum_independent_groups: 3
+  split_group_key: ["participant_id", "session_id"]
+  random_window_split: false
+  train_ratio: 0.70
+  calibration_ratio: 0.15
+  test_ratio: 0.15
+  seed: 20260804
+
+normalization:
+  type: "median_iqr"
+  fit_on: "train_only"
+
+training:
+  epochs: 50
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  patience: 8
+  min_delta: 0.00001
+  gradient_clip_norm: 5.0
+  classifier_weight: 0.0
+
+prototype:
+  source: "train_only"
+
+calibration:
+  source: "calibration_only"
+  target_fpr: 0.01
+  detection_rule: "score > threshold"
+  quantile_method: "higher"
+
+test:
+  source: "untouched_test"
+  allowed_metrics:
+    - reconstruction_fpr
+    - prototype_fpr
+  forbidden_metrics_without_attacks:
+    - attack_detection_rate
+    - classifier_accuracy

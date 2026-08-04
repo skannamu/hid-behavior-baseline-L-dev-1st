@@ -1,0 +1,274 @@
+{
+  "schema_version": "2.0.0-draft.1",
+  "timestamp_unit": "ns",
+  "notes": [
+    "Expected values are exact for integer timestamps unless a floating tolerance is stated.",
+    "All state ordering is by key-down timestamp."
+  ],
+  "cases": [
+    {
+      "name": "simple_sequential",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 100000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        },
+        {
+          "t": 150000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "down"
+        },
+        {
+          "t": 250000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "keystroke_count": 2,
+        "states": [
+          {
+            "hold_time_s": 0.1,
+            "repeat_flag": 0
+          },
+          {
+            "hold_time_s": 0.1,
+            "press_interval_s": 0.15,
+            "signed_flight_time_s": 0.05,
+            "release_inversion_flag": 0,
+            "overlap_fraction": 0.0,
+            "concurrent_keys_at_press": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "overlap_and_release_inversion",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 50000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "down"
+        },
+        {
+          "t": 100000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "up"
+        },
+        {
+          "t": 150000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "keystroke_count": 2,
+        "states": [
+          {
+            "hold_time_s": 0.15,
+            "overlap_fraction": 0.3333333333333333
+          },
+          {
+            "hold_time_s": 0.05,
+            "press_interval_s": 0.05,
+            "signed_flight_time_s": -0.1,
+            "release_inversion_flag": 1,
+            "overlap_fraction": 1.0,
+            "concurrent_keys_at_press": 1
+          }
+        ],
+        "float_tolerance": 1e-09
+      }
+    },
+    {
+      "name": "modifier_snapshot_survives_release_order",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 29,
+          "ext": 0,
+          "vkey": 17,
+          "action": "down"
+        },
+        {
+          "t": 20000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "down"
+        },
+        {
+          "t": 40000000,
+          "device": 0,
+          "make": 29,
+          "ext": 0,
+          "vkey": 17,
+          "action": "up"
+        },
+        {
+          "t": 60000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "keystroke_count": 2,
+        "state_for_vkey_67": {
+          "ctrl_at_press": 1,
+          "command_shortcut_flag": 1,
+          "concurrent_keys_at_press": 1
+        }
+      }
+    },
+    {
+      "name": "os_repeat_collapsed_into_one_keystroke",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 400000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 450000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 500000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "keystroke_count": 1,
+        "states": [
+          {
+            "hold_time_s": 0.5,
+            "repeat_count": 2,
+            "repeat_flag": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "three_key_overlap_union_is_bounded",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 20000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "down"
+        },
+        {
+          "t": 40000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "down"
+        },
+        {
+          "t": 60000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "up"
+        },
+        {
+          "t": 80000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "up"
+        },
+        {
+          "t": 100000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "state_for_vkey_65": {
+          "hold_time_s": 0.1,
+          "overlap_union_duration_s": 0.06,
+          "overlap_fraction": 0.6
+        },
+        "global_assertions": [
+          "0 <= overlap_fraction <= 1 for every state"
+        ]
+      }
+    }
+  ]
+}
