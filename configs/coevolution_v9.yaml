@@ -1,0 +1,53 @@
+stage:
+  name: "stable_v9_coevolution"
+  version: "9.0.0-schema-v2-coevolution-port-v1"
+  feature_schema_version: "2.0.0"
+  schema_hash: "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2"
+
+protocol:
+  attack_generation_level: "raw_event"
+  feature_direct_mutation: false
+  stable_extractor_required: true
+  normal_threshold_source: "calibration_only"
+  normal_test_during_rounds: "forbidden"
+  final_holdout_attack_during_rounds: "forbidden"
+
+attack_generation:
+  candidates: 24
+  keystrokes_per_candidate: 72
+  mutation_strength: 0.18
+  families:
+    - constant_fast
+    - jittered_mimic
+    - burst_pause
+    - overlap_dense
+    - shortcut_heavy
+    - correction_heavy
+
+weakness_mining:
+  max_hard_windows: 512
+  max_parent_sessions: 8
+  include_detected_fillers: true
+  selection: "bypass_first_then_lowest_decision_score_with_session_diversity"
+
+hardened_training:
+  epochs: 20
+  batch_size: 128
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  patience: 5
+  normal_reconstruction_only: true
+  classifier_uses_normal_and_attack: true
+  normalizer_policy: "frozen_from_D0"
+  prototype_source: "balanced_normal_train_only"
+  attack_split_group: "session_id"
+  target_fpr: 0.01
+  decision_policy: "max_component_threshold_ratio"
+  threshold_source: "normal_calibration_only"
+
+final_evaluation:
+  status: "not_in_this_patch"
+  required_next:
+    - "freeze D_final"
+    - "generate independent A_final with disjoint seed/family/lineage"
+    - "evaluate frozen normal test and A_final exactly once"
