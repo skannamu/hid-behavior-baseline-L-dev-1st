@@ -13,6 +13,17 @@ from .split_manager import (
     split_by_group,
 )
 from .torch_dataset import TorchFeatureV2Dataset
+from .session_validator import (
+    CORE_SCENARIOS,
+    SCENARIO_PROTOCOL,
+    DatasetValidationReport,
+    SessionValidationConfig,
+    SessionValidationResult,
+    ValidationIssue,
+    discover_session_dirs,
+    validate_dataset_root,
+    validate_session_dir,
+)
 
 __all__ = [
     "FeatureV2WindowDataset",
@@ -24,4 +35,13 @@ __all__ = [
     "GroupSplitConfig",
     "split_by_group",
     "TorchFeatureV2Dataset",
+    "CORE_SCENARIOS",
+    "SCENARIO_PROTOCOL",
+    "DatasetValidationReport",
+    "SessionValidationConfig",
+    "SessionValidationResult",
+    "ValidationIssue",
+    "discover_session_dirs",
+    "validate_dataset_root",
+    "validate_session_dir",
 ]
