@@ -13,7 +13,9 @@ data:
   reject_random_window_split: true
 
 split:
-  group_key: ["participant_id", "session_id"]
+  group_mode: "participant"
+  group_key: ["participant_id"]
+  development_group_mode: "participant_session"
   train_ratio: 0.70
   calibration_ratio: 0.15
   test_ratio: 0.15

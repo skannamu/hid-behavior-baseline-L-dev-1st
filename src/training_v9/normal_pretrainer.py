@@ -17,8 +17,12 @@ from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.data_v2 import (
+    BalancedSamplingConfig,
     FeatureV2WindowDataset,
     GroupSplitConfig,
+    balanced_subsample,
+    load_manifest_entries,
+    resolve_manifest_window_paths,
     split_by_group,
 )
 from src.features.schema import (
@@ -54,6 +58,13 @@ class NormalPretrainConfig:
     train_ratio: float = 0.70
     calibration_ratio: float = 0.15
     test_ratio: float = 0.15
+    split_group_mode: str = "participant"
+
+    balance_training: bool = True
+    training_window_stride: int = 5
+    training_balance_mode: str = "equal"
+    training_target_windows_per_group: int | None = None
+    training_max_windows_per_group: int | None = 3000
 
     sequence_reconstruction_weight: float = 1.0
     context_reconstruction_weight: float = 0.5
@@ -96,6 +107,16 @@ class NormalPretrainConfig:
             raise ValueError("learning_rate must be positive")
         if not 0.0 < self.target_fpr < 1.0:
             raise ValueError("target_fpr must be in (0, 1)")
+
+        GroupSplitConfig(group_mode=self.split_group_mode).validate()
+        BalancedSamplingConfig(
+            enabled=self.balance_training,
+            window_stride=self.training_window_stride,
+            balance_mode=self.training_balance_mode,
+            target_windows_per_group=self.training_target_windows_per_group,
+            max_windows_per_group=self.training_max_windows_per_group,
+            seed=self.seed,
+        ).validate()
 
 
 @dataclass(frozen=True)
@@ -268,6 +289,8 @@ def run_normal_pretraining(
     config: NormalPretrainConfig | None = None,
     model_config: ReConHIDV9Config | None = None,
     run_name: str | None = None,
+    manifest_path: str | Path | None = None,
+    verify_manifest_hashes: bool = False,
 ) -> NormalPretrainResult:
     cfg = config or NormalPretrainConfig()
     cfg.validate()
@@ -276,7 +299,21 @@ def run_normal_pretraining(
 
     _set_reproducibility(cfg.seed, cfg.deterministic)
 
-    dataset, file_reports = FeatureV2WindowDataset.discover(dataset_root)
+    if manifest_path is not None:
+        manifest_entries = load_manifest_entries(
+            manifest_path,
+            dataset_root=dataset_root,
+            verify_files=True,
+            verify_hashes=verify_manifest_hashes,
+        )
+        window_paths = resolve_manifest_window_paths(
+            manifest_entries,
+            dataset_root=dataset_root,
+        )
+        dataset, file_reports = FeatureV2WindowDataset.from_paths(window_paths)
+    else:
+        manifest_entries = None
+        dataset, file_reports = FeatureV2WindowDataset.discover(dataset_root)
     _assert_normal_only(dataset)
 
     split = split_by_group(
@@ -286,13 +323,27 @@ def run_normal_pretraining(
             calibration_ratio=cfg.calibration_ratio,
             test_ratio=cfg.test_ratio,
             seed=cfg.seed,
+            group_mode=cfg.split_group_mode,
         ),
     )
 
+    balance_result = balanced_subsample(
+        split.train,
+        config=BalancedSamplingConfig(
+            enabled=cfg.balance_training,
+            window_stride=cfg.training_window_stride,
+            balance_mode=cfg.training_balance_mode,
+            target_windows_per_group=cfg.training_target_windows_per_group,
+            max_windows_per_group=cfg.training_max_windows_per_group,
+            seed=cfg.seed,
+        ),
+    )
+    training_dataset = balance_result.dataset
+
     normalizer = FeatureNormalizerV2()
     train_sequence, train_context = normalizer.fit_transform(
-        split.train.sequence_array,
-        split.train.context_array,
+        training_dataset.sequence_array,
+        training_dataset.context_array,
     )
     calibration_sequence, calibration_context = normalizer.transform(
         split.calibration.sequence_array,
@@ -364,13 +415,20 @@ def run_normal_pretraining(
         "window_context_features": list(WINDOW_CONTEXT_FEATURES),
     })
     _atomic_json(run_dir / "split_manifest.json", {
+        "group_mode": split.group_mode,
         "train_groups": list(split.train_groups),
         "calibration_groups": list(split.calibration_groups),
         "test_groups": list(split.test_groups),
-        "train_windows": len(split.train),
+        "raw_train_windows": len(split.train),
+        "train_windows": len(training_dataset),
+        "training_balance": balance_result.report,
         "calibration_windows": len(split.calibration),
         "test_windows": len(split.test),
         "source_files": [asdict(report) for report in file_reports],
+        "source_manifest": str(manifest_path) if manifest_path is not None else None,
+        "manifest_entry_count": (
+            len(manifest_entries) if manifest_entries is not None else None
+        ),
         "split_seed": cfg.seed,
         "random_window_split": False,
     })
@@ -582,7 +640,7 @@ def run_normal_pretraining(
     result = NormalPretrainResult(
         run_dir=str(run_dir),
         best_epoch=best_epoch,
-        train_windows=len(split.train),
+        train_windows=len(training_dataset),
         calibration_windows=len(split.calibration),
         test_windows=len(split.test),
         reconstruction_threshold=reconstruction_threshold,

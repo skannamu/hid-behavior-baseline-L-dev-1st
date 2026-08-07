@@ -6,16 +6,26 @@ stage:
 
 data:
   minimum_independent_groups: 3
-  split_group_key: ["participant_id", "session_id"]
+  split_group_mode: "participant"
   random_window_split: false
   train_ratio: 0.70
   calibration_ratio: 0.15
   test_ratio: 0.15
   seed: 20260804
+  manifest_required_for_final_run: true
+
+training_sampling:
+  enabled: true
+  balance_by: ["participant_id", "scenario"]
+  balance_mode: "equal"
+  window_subsample_stride: 5
+  target_windows_per_group: null
+  max_windows_per_group: 3000
+  calibration_and_test_use_full_windows: true
 
 normalization:
   type: "median_iqr"
-  fit_on: "train_only"
+  fit_on: "balanced_train_only"
 
 training:
   epochs: 50
@@ -28,7 +38,7 @@ training:
   classifier_weight: 0.0
 
 prototype:
-  source: "train_only"
+  source: "balanced_train_only"
 
 calibration:
   source: "calibration_only"
