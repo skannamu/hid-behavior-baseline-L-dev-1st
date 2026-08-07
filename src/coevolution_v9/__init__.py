@@ -13,6 +13,12 @@ from .hardened_trainer import (
     train_hardened_defender_v9,
 )
 from .round_runner import CoevolutionRoundConfig, run_coevolution_round
+from .final_evaluator import (
+    FinalEvaluationConfig,
+    audit_final_lineage,
+    freeze_defender_artifacts,
+    run_final_evaluation,
+)
 
 __all__ = [
     "DefenderBundle",
@@ -27,4 +33,8 @@ __all__ = [
     "train_hardened_defender_v9",
     "CoevolutionRoundConfig",
     "run_coevolution_round",
+    "FinalEvaluationConfig",
+    "audit_final_lineage",
+    "freeze_defender_artifacts",
+    "run_final_evaluation",
 ]

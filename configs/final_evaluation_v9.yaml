@@ -1,0 +1,31 @@
+stage:
+  name: "stable_v9_final_holdout_evaluation"
+  version: "9.0.0-schema-v2-final-eval-v1"
+  feature_schema_version: "2.0.0"
+  schema_hash: "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2"
+
+protocol:
+  freeze_defender_before_scoring: true
+  threshold_recalibration_on_final_data: false
+  model_selection_on_final_data: false
+  A_final_training_use: false
+  normal_test_source: "frozen_untouched_split"
+  attack_generation_level: "raw_event"
+  output_overwrite: false
+
+final_evaluation:
+  seed: 920260807
+  candidates: 24
+  keystrokes_per_candidate: 84
+  mutation_strength: 0.10
+  families:
+    - high_variance_mimic
+    - long_hold_mimic
+    - sparse_shortcut_pause
+  batch_size: 256
+  device: "cuda"
+  verify_normal_manifest_hashes: true
+  require_timeline_defender_match: true
+  require_disjoint_seeds: true
+  require_disjoint_families: true
+  require_null_parent_lineage: true

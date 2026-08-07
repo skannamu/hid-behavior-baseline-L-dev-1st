@@ -25,7 +25,7 @@ from .common import atomic_json, sha256_file, write_jsonl
 
 
 GENERATOR_VERSION = "raw_attack_generator_v9_1"
-SUPPORTED_FAMILIES = (
+ADAPTIVE_FAMILIES = (
     "constant_fast",
     "jittered_mimic",
     "burst_pause",
@@ -33,6 +33,14 @@ SUPPORTED_FAMILIES = (
     "shortcut_heavy",
     "correction_heavy",
 )
+
+FINAL_HOLDOUT_FAMILIES = (
+    "high_variance_mimic",
+    "long_hold_mimic",
+    "sparse_shortcut_pause",
+)
+
+SUPPORTED_FAMILIES = ADAPTIVE_FAMILIES + FINAL_HOLDOUT_FAMILIES
 
 
 @dataclass(frozen=True)
@@ -88,6 +96,7 @@ class RawAttackGenerationConfig:
     generation: int = 0
     mutation_strength: float = 0.18
     parent_policy_path: str | None = None
+    families: tuple[str, ...] = ADAPTIVE_FAMILIES
 
     def validate(self) -> None:
         if self.candidates <= 0:
@@ -101,6 +110,16 @@ class RawAttackGenerationConfig:
             raise ValueError("generation must be non-negative")
         if self.mutation_strength < 0:
             raise ValueError("mutation_strength must be non-negative")
+        if not self.families:
+            raise ValueError("families must not be empty")
+        unknown = sorted(set(self.families) - set(SUPPORTED_FAMILIES))
+        if unknown:
+            raise ValueError(
+                f"Unsupported families={unknown}; expected a subset of "
+                f"{SUPPORTED_FAMILIES}"
+            )
+        if len(set(self.families)) != len(self.families):
+            raise ValueError("families must not contain duplicates")
 
 
 @dataclass(frozen=True)
@@ -205,6 +224,45 @@ def _base_policy(family: str) -> RawAttackPolicy:
             modifier_probability=0.015,
             repeat_probability=0.01,
             overlap_probability=0.08,
+        ),
+        "high_variance_mimic": RawAttackPolicy(
+            family=family,
+            inter_key_mean_ms=118.0,
+            inter_key_jitter_ms=72.0,
+            hold_mean_ms=79.0,
+            hold_jitter_ms=39.0,
+            pause_probability=0.055,
+            pause_mean_ms=890.0,
+            correction_probability=0.07,
+            modifier_probability=0.055,
+            repeat_probability=0.018,
+            overlap_probability=0.24,
+        ),
+        "long_hold_mimic": RawAttackPolicy(
+            family=family,
+            inter_key_mean_ms=132.0,
+            inter_key_jitter_ms=38.0,
+            hold_mean_ms=152.0,
+            hold_jitter_ms=42.0,
+            pause_probability=0.028,
+            pause_mean_ms=680.0,
+            correction_probability=0.035,
+            modifier_probability=0.04,
+            repeat_probability=0.012,
+            overlap_probability=0.36,
+        ),
+        "sparse_shortcut_pause": RawAttackPolicy(
+            family=family,
+            inter_key_mean_ms=142.0,
+            inter_key_jitter_ms=46.0,
+            hold_mean_ms=72.0,
+            hold_jitter_ms=22.0,
+            pause_probability=0.09,
+            pause_mean_ms=1050.0,
+            correction_probability=0.055,
+            modifier_probability=0.14,
+            repeat_probability=0.009,
+            overlap_probability=0.13,
         ),
     }
     return policies[family]
@@ -622,7 +680,7 @@ def generate_raw_attack_pool(
                 strength=cfg.mutation_strength,
             )
         else:
-            family = SUPPORTED_FAMILIES[index % len(SUPPORTED_FAMILIES)]
+            family = cfg.families[index % len(cfg.families)]
             policy = mutate_policy(
                 _base_policy(family),
                 rng=rng,
