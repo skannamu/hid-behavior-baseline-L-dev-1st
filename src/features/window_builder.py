@@ -159,8 +159,16 @@ class WindowBuilder:
             else:
                 burst_lengths[-1] += 1
 
-        mean_burst = sum(burst_lengths) / len(burst_lengths)
         max_burst = max(burst_lengths)
+
+        hold_times = [float(state.hold_time_s) for state in chunk]
+        hold_median = _median(hold_times)
+        hold_mad = _mad(hold_times, hold_median)
+        hold_robust_cv = (
+            1.4826 * hold_mad / max(hold_median, ROBUST_CV_EPSILON)
+            if hold_times
+            else 0.0
+        )
 
         correction_rate = sum(s.correction_key_flag for s in chunk) / n
 
@@ -190,7 +198,7 @@ class WindowBuilder:
             "pause_rate": pause_rate,
             "pause_time_fraction": pause_time_fraction,
             "max_pause_interval_s": max_pause,
-            "mean_burst_length_keys": mean_burst,
+            "hold_time_robust_cv": hold_robust_cv,
             "max_burst_length_keys": float(max_burst),
             "correction_rate": correction_rate,
             "command_shortcut_rate": shortcut_rate,

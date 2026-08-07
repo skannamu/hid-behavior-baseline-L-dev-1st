@@ -1,7 +1,7 @@
 schema:
   name: hid_behavior_feature_schema
-  version: "2.0.0-draft.1"
-  status: draft
+  version: "2.0.0"
+  status: stable
   purpose: behavior-only HID BadUSB detection
   sequence_unit: completed_physical_keystroke
   sequence_order: press_timestamp_ns_ascending
@@ -40,9 +40,28 @@ keystroke_pairing:
   unmatched_up_policy:
     behavior: record_quality_event_and_ignore_for_model
   incomplete_key_at_session_end_policy:
-    behavior: record_quality_event_and_exclude_from_windows
-  modifier_snapshot_time: key_down
+    behavior: record_quality_event_and_truncate_at_earliest_incomplete_key_down
+    raw_preservation: keep_all_raw_events
+    state_policy: keep_only_completed_keystrokes_whose_key_up_precedes_boundary
+    window_policy: build_only_from_boundary_safe_state_prefix
+  modifier_snapshot_time: immediately_before_current_key_down
+  modifier_self_included: false
+  modifier_activation_order:
+    - snapshot_already_active_modifiers
+    - freeze_current_keystroke_features
+    - activate_current_key_if_modifier
   state_output_order: press_timestamp_ns_ascending
+
+session_boundary_policy:
+  startup:
+    readiness_key_settle_seconds: 0.75
+    unmatched_key_up_grace_seconds: 1.5
+    behavior: ignore_pre_capture_release_events_and_record_as_boundary_info
+  shutdown:
+    source_of_truth: raw_events_are_never_deleted
+    cutoff_definition: earliest_incomplete_key_down_ordered_by_timestamp_then_raw_event_index
+    safe_completed_keystroke_rule: key_up_must_be_strictly_before_cutoff
+    purpose: prevent Ctrl+C or partially observed final chords from contaminating state and window features
 
 state_schema:
   role: canonical_keystroke_level_observation
@@ -154,7 +173,7 @@ sequence_model_features:
     dtype: float32
     source_dtype: boolean
     level: keystroke
-    definition: "Shift state captured immediately before/current key-down"
+    definition: "1 only if Shift was already active immediately before the current key-down; the current Shift key never activates its own timestep"
     semantic_range: "{0, 1}"
     decision: add
     replaces_part_of: modifier_count
@@ -163,7 +182,7 @@ sequence_model_features:
     dtype: float32
     source_dtype: boolean
     level: keystroke
-    definition: "Ctrl state captured immediately before/current key-down"
+    definition: "1 only if Ctrl was already active immediately before the current key-down; the current Ctrl key never activates its own timestep"
     semantic_range: "{0, 1}"
     decision: add
     replaces_part_of: modifier_count
@@ -172,7 +191,7 @@ sequence_model_features:
     dtype: float32
     source_dtype: boolean
     level: keystroke
-    definition: "Alt state captured immediately before/current key-down"
+    definition: "1 only if Alt was already active immediately before the current key-down; the current Alt key never activates its own timestep"
     semantic_range: "{0, 1}"
     decision: add
     replaces_part_of: modifier_count
@@ -181,7 +200,7 @@ sequence_model_features:
     dtype: float32
     source_dtype: boolean
     level: keystroke
-    definition: "Windows/Meta state captured immediately before/current key-down"
+    definition: "1 only if Windows/Meta was already active immediately before the current key-down; the current Meta key never activates its own timestep"
     semantic_range: "{0, 1}"
     decision: add
     replaces_part_of: modifier_count
@@ -229,12 +248,15 @@ window_context_features:
     semantic_range: "[0, +inf)"
     decision: add
 
-  - name: mean_burst_length_keys
+  - name: hold_time_robust_cv
     dtype: float32
-    definition: "mean number of keystrokes in bursts segmented by press_interval_s >= pause_threshold_seconds"
-    semantic_range: "[1, N]"
-    decision: add
-    replaces: burst_density
+    definition: "1.4826 * MAD(hold_time_s) / max(median(hold_time_s), epsilon)"
+    semantic_range: "[0, +inf)"
+    epsilon: 1.0e-6
+    empty_policy: 0.0
+    decision: replace_exactly_redundant_context_feature
+    replaces: mean_burst_length_keys
+    rationale: "mean burst length is an exact deterministic transform of pause_rate when N is fixed; hold-time robust CV adds independent dwell-variability information"
 
   - name: max_burst_length_keys
     dtype: float32
@@ -306,6 +328,10 @@ excluded_from_default_model:
     state_retention: false
     reason: legacy implementation duplicates positive signed flight information
 
+  - name: mean_burst_length_keys
+    state_retention: false
+    reason: exact deterministic transform of pause_rate for fixed window size N
+
   - name: current_key_category_id
     state_retention: category_string_or_token_only
     reason: scalar IDs create false ordinal geometry
@@ -351,7 +377,16 @@ data_split_policy:
     - calibration_on_final_test
     - threshold_optimization_on_final_test
 
+revision_notes:
+  stable_2_0_0:
+    - modifier snapshots remain strictly pre-current-key-down
+    - trailing state is truncated at the earliest incomplete key-down boundary
+    - startup readiness-key releases are excluded from raw model input
+    - mean_burst_length_keys is replaced by hold_time_robust_cv
+    - draft window files must never be mixed with stable 2.0.0 files
+
 compatibility:
+  incompatible_prior_drafts: ["2.0.0-draft.1", "2.0.0-draft.2"]
   legacy_schema: "1.x"
   legacy_framework: "8.1"
   new_framework_target: "9.x"

@@ -1,7 +1,19 @@
 {
-  "package": "feature_schema_v2_draft01",
-  "schema_version": "2.0.0-draft.1",
-  "schema_sha256": "cd169ba9f1f2a37ee2aab29ba33fff32f2c386c9e819bd01ed2dbd85984e20b1",
+  "package": "feature_schema_v2_stable_2_0_0",
+  "schema_version": "2.0.0",
+  "schema_sha256": "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2",
+  "collector_version": "4.3-final",
+  "extractor_version": "feature_core_v2_3",
+  "dataset_directory": "dataset_v2_final",
+  "incompatible_with": [
+    "2.0.0-draft.1",
+    "2.0.0-draft.2"
+  ],
+  "semantic_changes": [
+    "Trailing canonical state is truncated at the earliest incomplete key-down boundary while raw events remain intact.",
+    "Startup readiness-key releases are ignored only before the first captured key-down inside the startup grace period.",
+    "mean_burst_length_keys is replaced by hold_time_robust_cv to remove exact context redundancy."
+  ],
   "files": [
     "feature_schema_v2.yaml",
     "FEATURE_SCHEMA_V2_SPEC.md",

@@ -1,206 +1,178 @@
-# HID Behavior Feature Schema v2 — Draft 0.1
+# HID Behavior Feature Schema v2.0.0 — Stable
 
-## 1. 목표
+## 1. 목적과 고정 원칙
 
-이 문서는 HID 기반 BadUSB 행동 탐지를 위한 **Feature Schema v2**의 첫 번째 고정 초안이다.
+이 문서는 HID 기반 BadUSB 행동 탐지를 위한 Feature Schema v2의 안정 버전이다.
 
-핵심 원칙은 다음과 같다.
+1. `raw.csv`는 삭제·수정하지 않는 source of truth다.
+2. 한 timestep은 하나의 완성된 물리적 keystroke다.
+3. state 순서는 key-up이 아니라 key-down 시각 순서다.
+4. 정상 수집, offline replay, synthetic attack은 동일 extractor를 사용한다.
+5. 모델 입력은 sequence `50 × 12`와 window context `12`로 구성한다.
+6. category ID를 연속형 수치 feature로 사용하지 않는다.
+7. 서로 다른 schema version/hash의 window는 함께 로드하지 않는다.
 
-1. `raw.csv`를 source of truth로 보존한다.
-2. 한 timestep은 하나의 완성된 물리적 keystroke이다.
-3. timestep 순서는 key-up 순서가 아니라 **key-down 시각 순서**이다.
-4. 개별 keystroke feature와 50-key window context feature를 분리한다.
-5. 정상 데이터와 synthetic attack 데이터는 반드시 동일 extractor를 사용한다.
-6. category ID를 연속형 숫자로 모델에 넣지 않는다.
-7. threshold와 score policy는 final test에서 최적화하지 않는다.
+## 2. v2.0.0 최종 변경점
 
----
+### Modifier snapshot
 
-## 2. 데이터 계층
+모든 modifier bit는 현재 key-down 직전에 이미 활성화되어 있던 modifier만 나타낸다.
+현재 modifier 키는 자기 timestep을 활성화하지 않는다.
+
+```text
+Shift down  -> shift_at_press = 0
+A down      -> shift_at_press = 1
+A up
+Shift up
+```
+
+### 시작 경계
+
+수집 시작 Enter의 key-up이 Raw Input 등록 뒤 도착하는 현상을 방지한다.
+
+- 준비 Enter 뒤 0.75초 settle
+- 첫 key-down 전 1.5초 이내의 선행 unmatched key-up은 boundary info로 기록하고 모델 raw에서 제외
+- 첫 key-down 이후에는 일반 unmatched key-up 정책을 그대로 적용
+
+### 종료 경계
+
+Ctrl+C, 창 종료 순간의 chord, 눌린 채 끝난 키가 마지막 window를 오염하지 않도록 한다.
+
+- raw 이벤트는 모두 보존한다.
+- 종료 시 남아 있는 incomplete key 중 가장 이른 key-down을 cutoff로 정한다.
+- key-up이 cutoff보다 엄격히 앞선 completed keystroke만 state에 유지한다.
+- cutoff와 겹치거나 그 뒤에 끝난 completed keystroke는 state/window에서 제외한다.
+- trim 개수와 cutoff raw index/timestamp를 summary와 quality log에 기록한다.
+
+예시:
+
+```text
+정상 입력 ...
+Ctrl down       <- earliest incomplete boundary
+C down
+C up
+프로그램 종료
+```
+
+위 경우 Ctrl은 incomplete이고 C는 completed지만 둘 다 모델 state/window에서 제외된다.
+`raw.csv`에는 원본 그대로 남는다.
+
+### Context 중복 제거
+
+고정 window 크기 `N=50`에서 다음 관계가 성립한다.
+
+```text
+mean_burst_length_keys = N / (pause_count + 1)
+pause_count = (N - 1) * pause_rate
+```
+
+따라서 `mean_burst_length_keys`는 `pause_rate`의 정확한 결정론적 변환이다.
+이를 제거하고 독립적인 dwell variability 요약인 `hold_time_robust_cv`로 교체한다.
+
+```text
+hold_time_robust_cv
+= 1.4826 × MAD(hold_time_s) / max(median(hold_time_s), 1e-6)
+```
+
+## 3. 데이터 계층
 
 ### Raw event
 
-키보드에서 받은 원시 key-down/key-up 이벤트다. 모든 후속 데이터를 다시 생성할 수 있는 원본이다.
+필수 필드:
+
+```text
+session_id, raw_event_index, timestamp_ns,
+device_id_session_local, make_code, extended_flag,
+vkey, message, action
+```
+
+행동 시간 계산은 `time.perf_counter_ns()` 기반 monotonic nanoseconds만 사용한다.
+wall-clock은 메타데이터용이다.
 
 ### State
 
-raw 이벤트를 press-order 기준 keystroke로 pairing한 표준 중간 표현이다. 정확한 keystroke 관측값과 품질 진단값만 저장한다.
+raw down/up을 physical key ID `(device, make_code, extended_flag)`로 pairing한
+press-order canonical keystroke다.
 
 ### Window
 
-50개의 press-ordered state를 하나의 모델 입력으로 만든다.
+- Sequence: `50 × 12`
+- Context: `12`
+- Metadata: 10 columns
+- 총 window CSV columns: `10 + 600 + 12 = 622`
 
-- Sequence tensor: `50 × 12`
-- Window context vector: `12`
-- Optional category token sequence: `50`개 토큰, 기본 비활성
+## 4. Sequence model features
 
----
-
-## 3. Sequence model features
-
-| # | 이름 | 정의 | 판정 |
-|---:|---|---|---|
-| 1 | `hold_time_s` | release − press | 유지 |
-| 2 | `press_interval_s` | 현재 press − 이전 press | 기존 P2P 개명·유지 |
-| 3 | `signed_flight_time_s` | 현재 press − 이전 release | signed로 재정의 |
-| 4 | `overlap_fraction` | 현재 hold 구간에서 다른 키와 겹친 시간의 합집합 / hold | 공식 교체 |
-| 5 | `concurrent_keys_at_press` | 현재 key-down 직전에 눌려 있던 다른 physical key 수 | 공식 교체 |
-| 6 | `release_inversion_flag` | press-order상 현재 release가 이전 release보다 빠르면 1 | 추가 |
-| 7 | `correction_key_flag` | Backspace/Delete면 1 | 추가 |
-| 8 | `repeat_flag` | OS repeat가 한 번 이상 발생했으면 1 | 추가 |
-| 9 | `shift_at_press` | key-down 당시 Shift 상태 | 추가 |
-| 10 | `ctrl_at_press` | key-down 당시 Ctrl 상태 | 추가 |
-| 11 | `alt_at_press` | key-down 당시 Alt 상태 | 추가 |
-| 12 | `meta_at_press` | key-down 당시 Windows/Meta 상태 | 추가 |
-
-### 중요한 부호 규칙
-
-- `hold_time_s >= 0`
-- `press_interval_s >= 0`
-- `signed_flight_time_s`는 음수가 정상적으로 가능하다.
-- `release_inversion_flag=1`은 오류가 아니라 release 순서 역전을 뜻한다.
-- `overlap_fraction`은 반드시 `[0, 1]`이다.
-
----
-
-## 4. Window context features
-
-| # | 이름 | 정의 |
+| # | Feature | 의미 |
 |---:|---|---|
-| 1 | `press_rate_hz` | `(N-1) / window press span` |
-| 2 | `active_press_interval_median_s` | pause가 아닌 press interval의 median |
-| 3 | `active_press_interval_robust_cv` | `1.4826 × MAD / median` |
-| 4 | `pause_rate` | pause interval 수 / 전체 transition 수 |
-| 5 | `pause_time_fraction` | pause interval 합 / 전체 press span |
-| 6 | `max_pause_interval_s` | 가장 긴 pause interval |
-| 7 | `mean_burst_length_keys` | pause 경계로 나눈 burst의 평균 키 수 |
-| 8 | `max_burst_length_keys` | 가장 긴 burst의 키 수 |
-| 9 | `correction_rate` | correction key 수 / 전체 키 수 |
-| 10 | `command_shortcut_rate` | Ctrl/Alt/Meta가 활성화된 비-modifier key 비율 |
-| 11 | `overlap_key_rate` | overlap이 존재한 키 비율 |
-| 12 | `release_inversion_rate` | release inversion transition 비율 |
+| 1 | `hold_time_s` | 현재 release − 현재 press |
+| 2 | `press_interval_s` | 현재 press − 이전 press |
+| 3 | `signed_flight_time_s` | 현재 press − 이전 release; 음수 rollover 허용 |
+| 4 | `overlap_fraction` | 현재 hold 중 다른 키와 겹친 union duration / hold |
+| 5 | `concurrent_keys_at_press` | 현재 key-down 직전 이미 눌린 다른 physical key 수 |
+| 6 | `release_inversion_flag` | 현재 release가 이전 press-order key release보다 빠르면 1 |
+| 7 | `correction_key_flag` | Backspace/Delete면 1 |
+| 8 | `repeat_flag` | 동일 physical key의 OS repeat down이 존재하면 1 |
+| 9 | `shift_at_press` | 직전 Shift 활성 상태 |
+| 10 | `ctrl_at_press` | 직전 Ctrl 활성 상태 |
+| 11 | `alt_at_press` | 직전 Alt 활성 상태 |
+| 12 | `meta_at_press` | 직전 Windows/Meta 활성 상태 |
 
-`Shift`만 활성화된 대문자·문장부호 입력은 command shortcut으로 계산하지 않는다.
+## 5. Window context features
 
----
+| # | Feature | 정의 |
+|---:|---|---|
+| 1 | `press_rate_hz` | `(N−1) / press span` |
+| 2 | `active_press_interval_median_s` | pause 미만 press interval median |
+| 3 | `active_press_interval_robust_cv` | active interval의 `1.4826 × MAD / median` |
+| 4 | `pause_rate` | pause transition 수 / `(N−1)` |
+| 5 | `pause_time_fraction` | pause interval 합 / 전체 interval 합 |
+| 6 | `max_pause_interval_s` | 최대 pause interval, 없으면 0 |
+| 7 | `hold_time_robust_cv` | hold time의 robust CV |
+| 8 | `max_burst_length_keys` | pause 경계로 나눈 가장 긴 burst의 키 수 |
+| 9 | `correction_rate` | correction key 수 / N |
+| 10 | `command_shortcut_rate` | Ctrl/Alt/Meta 활성 비-modifier key 비율 |
+| 11 | `overlap_key_rate` | overlap이 존재한 key 비율 |
+| 12 | `release_inversion_rate` | window 내부 release inversion 비율 |
 
-## 5. 기존 15개 판정
+Shift만 활성화된 대문자·문장부호 입력은 command shortcut으로 계산하지 않는다.
 
-### 유지 또는 재정의 후 유지
+## 6. Pairing 및 품질 정책
 
-- `hold_time`
-- `flight_time` → `signed_flight_time_s`
-- `press_to_press_time` → `press_interval_s`
-- `overlap_ratio` → `overlap_fraction`
-- `simultaneous_key_count` → `concurrent_keys_at_press`
+- duplicate down: 새 keystroke를 만들지 않고 repeat count 증가
+- unmatched up: quality warning, state 제외
+- negative hold: quality error, state 제외
+- zero hold: state 유지, quality flag 추가
+- incomplete at end: quality warning + trailing boundary truncate
+- 모든 overlap fraction은 `[0,1]`
+- 모든 binary sequence feature는 `{0,1}`
+- 모든 window 수치는 finite여야 한다.
 
-### state 진단용으로만 유지
+## 7. Window 생성
 
-- `release_to_release_time`
-- `modifier_count`
-- `shortcut_flag`
+1. boundary-safe press-order state prefix를 생성한다.
+2. 이전 keystroke가 필요한 transition 값이 없는 첫 state는 eligible sequence에서 제외한다.
+3. 50개씩 stride 1로 생성한다.
+4. metadata에 schema version과 YAML SHA-256을 기록한다.
+5. exact 622-column header/order를 강제한다.
 
-### window context로 이동
+## 8. 분할 및 평가
 
-- `correction_ratio`
-- `keys_per_second`
-
-### 기존 구현 폐기 및 교체
-
-- `burst_density`
-- `timing_variance`
-- `pause_duration`
-
-### 기본 모델에서 제외
-
-- `timing_entropy`
-- `current_key_category_id`
-
-category는 문자열/token으로 보존하고 optional embedding ablation에서만 사용한다.
-
----
-
-## 6. 중복 제거 근거
-
-`release_interval[i]`는 다음으로 계산 가능하다.
-
-```text
-release_interval[i]
-= press_interval[i] + hold_time[i] - hold_time[i-1]
-```
-
-따라서 sequence model에는 넣지 않는다.
-
-또한 legacy `burst_density`는 실제 코드에서 `keys_per_second`와 동일했으므로 제거한다.
-
-`pause_count`, `pause_rate`, `burst_count`는 window size가 고정일 때 강하게 종속되므로 baseline context에는 `pause_rate`만 넣고 burst는 길이 통계만 사용한다.
-
----
-
-## 7. Pairing 및 edge-case 정책
-
-- physical key ID: `(session-local device ID, make code, extended flag)`
-- 같은 physical key의 중복 down:
-  - 새 keystroke를 만들지 않는다.
-  - `repeat_count`를 증가시킨다.
-- unmatched key-up:
-  - 품질 이벤트로 기록
-  - 모델용 state에서는 제외
-- 세션 종료 시 미완성 key:
-  - 품질 이벤트로 기록
-  - window에서 제외
-- modifier 상태:
-  - 반드시 현재 일반 키의 key-down 시점 snapshot 사용
-- 시간 계산:
-  - monotonic high-resolution integer nanoseconds 사용
-
----
-
-## 8. Window 생성 규칙
-
-1. 전체 세션에서 keystroke feature를 먼저 계산한다.
-2. 이전 keystroke가 필요한 transition feature가 유효하지 않은 첫 keystroke는 model window 시작점에서 제외한다.
-3. 50개씩 stride 1로 window를 생성한다.
-4. row metadata에 schema version과 schema hash를 기록한다.
-5. schema가 다른 파일은 합치지 않는다.
-
----
-
-## 9. 분할 규칙
-
-정상 데이터:
-
-```text
-participant_id + session_id
-```
-
-단위로 train/calibration/test를 분할한다.
-
-Synthetic attack:
-
-```text
-attack_trial_id + lineage_id
-```
-
-단위로 분할한다.
+정상 데이터는 최소 `participant_id + session_id` group으로 분리한다.
+Synthetic attack은 `attack_trial_id + lineage_id`로 분리한다.
 
 금지:
 
-- window row random split
-- calibration set과 final test 동일 사용
-- final test에서 threshold 또는 fusion weight 최적화
+- stride-1 window random split
+- calibration과 final test 재사용
+- final test에서 threshold/fusion weight 최적화
+- schema/hash 혼합
 
----
+## 9. 안정 버전 식별
 
-## 10. 다음 구현 순서
-
-1. `src/features/schema.py`
-2. `src/features/keystroke_builder.py`
-3. `src/features/extractor.py`
-4. `src/features/window_builder.py`
-5. `src/features/validators.py`
-6. Windows Collector v4에 raw writer + 공통 extractor 연결
-7. Framework v9 dataset loader
-8. event-level synthetic generator
-9. participant/session group split
-10. calibration/final-test 분리
+```text
+Feature Schema: 2.0.0
+Collector: v4.3 Final
+Extractor: feature_core_v2_3
+Dataset root: dataset_v2_final
+```

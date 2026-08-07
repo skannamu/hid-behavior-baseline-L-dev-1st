@@ -1,6 +1,8 @@
 stage:
   name: "normal_pretraining"
-  version: "9.0.0-draft.1"
+  version: "9.0.0-schema-v2-stable"
+  feature_schema_version: "2.0.0"
+  schema_hash: "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2"
 
 data:
   minimum_independent_groups: 3

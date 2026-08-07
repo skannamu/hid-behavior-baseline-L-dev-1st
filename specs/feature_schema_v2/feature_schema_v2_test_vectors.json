@@ -1,9 +1,12 @@
 {
-  "schema_version": "2.0.0-draft.1",
+  "schema_version": "2.0.0",
   "timestamp_unit": "ns",
   "notes": [
     "Expected values are exact for integer timestamps unless a floating tolerance is stated.",
-    "All state ordering is by key-down timestamp."
+    "All state ordering is by key-down timestamp.",
+    "Modifier bits represent modifiers already active immediately before the current key-down; a modifier never sets its own timestep.",
+    "Trailing completed keystrokes at or after the earliest incomplete key-down boundary are excluded from canonical state/window output.",
+    "mean_burst_length_keys is removed; hold_time_robust_cv is the seventh context feature."
   ],
   "cases": [
     {
@@ -157,6 +160,11 @@
           "ctrl_at_press": 1,
           "command_shortcut_flag": 1,
           "concurrent_keys_at_press": 1
+        },
+        "state_for_vkey_17": {
+          "ctrl_at_press": 0,
+          "modifier_count_at_press": 0,
+          "command_shortcut_flag": 0
         }
       }
     },
@@ -267,6 +275,146 @@
         },
         "global_assertions": [
           "0 <= overlap_fraction <= 1 for every state"
+        ]
+      }
+    },
+    {
+      "name": "modifier_self_excluded_prior_modifier_visible",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 42,
+          "ext": 0,
+          "vkey": 16,
+          "action": "down"
+        },
+        {
+          "t": 10000000,
+          "device": 0,
+          "make": 29,
+          "ext": 0,
+          "vkey": 17,
+          "action": "down"
+        },
+        {
+          "t": 20000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 40000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        },
+        {
+          "t": 50000000,
+          "device": 0,
+          "make": 29,
+          "ext": 0,
+          "vkey": 17,
+          "action": "up"
+        },
+        {
+          "t": 60000000,
+          "device": 0,
+          "make": 42,
+          "ext": 0,
+          "vkey": 16,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "state_for_vkey_16": {
+          "shift_at_press": 0,
+          "ctrl_at_press": 0
+        },
+        "state_for_vkey_17": {
+          "shift_at_press": 1,
+          "ctrl_at_press": 0
+        },
+        "state_for_vkey_65": {
+          "shift_at_press": 1,
+          "ctrl_at_press": 1,
+          "command_shortcut_flag": 1
+        }
+      }
+    },
+    {
+      "name": "trailing_incomplete_boundary_excludes_shutdown_chord",
+      "events": [
+        {
+          "t": 0,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "down"
+        },
+        {
+          "t": 50000000,
+          "device": 0,
+          "make": 30,
+          "ext": 0,
+          "vkey": 65,
+          "action": "up"
+        },
+        {
+          "t": 100000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "down"
+        },
+        {
+          "t": 150000000,
+          "device": 0,
+          "make": 48,
+          "ext": 0,
+          "vkey": 66,
+          "action": "up"
+        },
+        {
+          "t": 200000000,
+          "device": 0,
+          "make": 29,
+          "ext": 0,
+          "vkey": 17,
+          "action": "down"
+        },
+        {
+          "t": 210000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "down"
+        },
+        {
+          "t": 230000000,
+          "device": 0,
+          "make": 46,
+          "ext": 0,
+          "vkey": 67,
+          "action": "up"
+        }
+      ],
+      "expected": {
+        "keystroke_count_before_boundary_trim": 3,
+        "keystroke_count_after_boundary_trim": 2,
+        "incomplete_key_count": 1,
+        "trailing_completed_keystrokes_trimmed": 1,
+        "boundary_cutoff_raw_event_index": 4,
+        "remaining_vkeys": [
+          65,
+          66
         ]
       }
     }

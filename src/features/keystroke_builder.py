@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Any
+from typing import Any, Iterable, Mapping
 
 from .models import BuildResult, KeystrokeState, QualityEvent, RawKeyEvent
 
@@ -78,7 +78,18 @@ class _CompletedKeystroke:
 
 
 class KeystrokeBuilder:
-    """Deterministic offline builder shared by collection and generation paths."""
+    """Deterministic offline builder shared by collection and generation paths.
+
+    Final boundary contract:
+    if one or more physical keys remain down at the end of a session, the
+    earliest such key-down defines the trailing contamination boundary. Any
+    completed keystroke whose key-up is not strictly before that boundary is
+    excluded from canonical states and therefore from all model windows.
+
+    This removes shutdown chords such as Ctrl+C and also prevents partially
+    observed final chords from changing overlap, modifier, pause, or shortcut
+    features. Raw events remain untouched and are still the source of truth.
+    """
 
     def build(
         self,
@@ -126,14 +137,15 @@ class KeystrokeBuilder:
 
                 concurrent = len(active)
                 kind = modifier_kind(event.vkey)
-                if kind is not None:
-                    active_modifiers[pid] = kind
 
-                kinds = set(active_modifiers.values())
-                shift = int("shift" in kinds)
-                ctrl = int("ctrl" in kinds)
-                alt = int("alt" in kinds)
-                meta = int("meta" in kinds)
+                # Modifier bits describe only modifiers that were already
+                # active immediately before the current key-down. A modifier
+                # never activates its own timestep.
+                kinds_before_press = set(active_modifiers.values())
+                shift = int("shift" in kinds_before_press)
+                ctrl = int("ctrl" in kinds_before_press)
+                alt = int("alt" in kinds_before_press)
+                meta = int("meta" in kinds_before_press)
                 modifier_count = shift + ctrl + alt + meta
 
                 command_shortcut = int(
@@ -150,6 +162,10 @@ class KeystrokeBuilder:
                     modifier_count_at_press=modifier_count,
                     command_shortcut_flag=command_shortcut,
                 )
+
+                # Activate only after the current snapshot has been frozen.
+                if kind is not None:
+                    active_modifiers[pid] = kind
                 continue
 
             pending = active.pop(pid, None)
@@ -181,7 +197,8 @@ class KeystrokeBuilder:
             completed.append(_CompletedKeystroke(pending=pending, up=event))
             active_modifiers.pop(pid, None)
 
-        for pid, pending in active.items():
+        incomplete = list(active.items())
+        for pid, pending in incomplete:
             quality.append(
                 QualityEvent(
                     code="incomplete_key_at_end",
@@ -191,6 +208,44 @@ class KeystrokeBuilder:
                     physical_key_id=pid,
                 )
             )
+
+        cutoff_raw_index: int | None = None
+        cutoff_timestamp_ns: int | None = None
+        trimmed_completed = 0
+
+        if incomplete:
+            _, earliest_pending = min(
+                incomplete,
+                key=lambda pair: (
+                    pair[1].down.timestamp_ns,
+                    pair[1].down.raw_event_index,
+                ),
+            )
+            cutoff_raw_index = earliest_pending.down.raw_event_index
+            cutoff_timestamp_ns = earliest_pending.down.timestamp_ns
+            cutoff_key = (cutoff_timestamp_ns, cutoff_raw_index)
+
+            safe_completed = [
+                item
+                for item in completed
+                if (item.up.timestamp_ns, item.up.raw_event_index) < cutoff_key
+            ]
+            trimmed_completed = len(completed) - len(safe_completed)
+            completed = safe_completed
+
+            if trimmed_completed:
+                quality.append(
+                    QualityEvent(
+                        code="trailing_boundary_trim",
+                        severity="info",
+                        message=(
+                            f"Excluded {trimmed_completed} completed keystroke(s) "
+                            "at/after the earliest incomplete key-down boundary"
+                        ),
+                        raw_event_index=cutoff_raw_index,
+                        physical_key_id=earliest_pending.down.physical_key_id,
+                    )
+                )
 
         completed.sort(
             key=lambda item: (
@@ -231,51 +286,57 @@ class KeystrokeBuilder:
                 inversion = int(up.timestamp_ns < previous.up.timestamp_ns)
 
             overlap_duration_s = overlap_ns[index] / 1e9
-            overlap_fraction = (
-                overlap_ns[index] / hold_ns if hold_ns > 0 else 0.0
-            )
+            overlap_fraction = overlap_ns[index] / hold_ns if hold_ns > 0 else 0.0
 
-            state = KeystrokeState(
-                session_id=down.session_id,
-                keystroke_index=index,
-                source_raw_down_index=down.raw_event_index,
-                source_raw_up_index=up.raw_event_index,
-                device_id_session_local=down.device_id_session_local,
-                make_code=down.make_code,
-                extended_flag=down.extended_flag,
-                vkey=down.vkey,
-                key_category=key_category(down.vkey),
-                press_timestamp_ns=down.timestamp_ns,
-                release_timestamp_ns=up.timestamp_ns,
-                hold_time_s=hold_ns / 1e9,
-                press_interval_s=press_interval_s,
-                signed_flight_time_s=signed_flight_s,
-                release_interval_s=release_interval_s,
-                overlap_union_duration_s=overlap_duration_s,
-                overlap_fraction=overlap_fraction,
-                concurrent_keys_at_press=item.pending.concurrent_keys_at_press,
-                release_inversion_flag=inversion,
-                correction_key_flag=int(
-                    down.vkey in {BACKSPACE_VKEY, DELETE_VKEY}
-                ),
-                repeat_count=item.pending.repeat_count,
-                repeat_flag=int(item.pending.repeat_count > 0),
-                shift_at_press=item.pending.shift_at_press,
-                ctrl_at_press=item.pending.ctrl_at_press,
-                alt_at_press=item.pending.alt_at_press,
-                meta_at_press=item.pending.meta_at_press,
-                modifier_count_at_press=item.pending.modifier_count_at_press,
-                command_shortcut_flag=item.pending.command_shortcut_flag,
-                quality_flags=tuple(flags),
-                participant_id=participant_id,
-                scenario=scenario,
-                input_source=input_source,
-                label=label,
+            states.append(
+                KeystrokeState(
+                    session_id=down.session_id,
+                    keystroke_index=index,
+                    source_raw_down_index=down.raw_event_index,
+                    source_raw_up_index=up.raw_event_index,
+                    device_id_session_local=down.device_id_session_local,
+                    make_code=down.make_code,
+                    extended_flag=down.extended_flag,
+                    vkey=down.vkey,
+                    key_category=key_category(down.vkey),
+                    press_timestamp_ns=down.timestamp_ns,
+                    release_timestamp_ns=up.timestamp_ns,
+                    hold_time_s=hold_ns / 1e9,
+                    press_interval_s=press_interval_s,
+                    signed_flight_time_s=signed_flight_s,
+                    release_interval_s=release_interval_s,
+                    overlap_union_duration_s=overlap_duration_s,
+                    overlap_fraction=overlap_fraction,
+                    concurrent_keys_at_press=item.pending.concurrent_keys_at_press,
+                    release_inversion_flag=inversion,
+                    correction_key_flag=int(
+                        down.vkey in {BACKSPACE_VKEY, DELETE_VKEY}
+                    ),
+                    repeat_count=item.pending.repeat_count,
+                    repeat_flag=int(item.pending.repeat_count > 0),
+                    shift_at_press=item.pending.shift_at_press,
+                    ctrl_at_press=item.pending.ctrl_at_press,
+                    alt_at_press=item.pending.alt_at_press,
+                    meta_at_press=item.pending.meta_at_press,
+                    modifier_count_at_press=item.pending.modifier_count_at_press,
+                    command_shortcut_flag=item.pending.command_shortcut_flag,
+                    quality_flags=tuple(flags),
+                    participant_id=participant_id,
+                    scenario=scenario,
+                    input_source=input_source,
+                    label=label,
+                )
             )
-            states.append(state)
             previous = item
 
-        return BuildResult(states=tuple(states), quality_events=tuple(quality))
+        return BuildResult(
+            states=tuple(states),
+            quality_events=tuple(quality),
+            boundary_cutoff_raw_event_index=cutoff_raw_index,
+            boundary_cutoff_timestamp_ns=cutoff_timestamp_ns,
+            incomplete_key_count=len(incomplete),
+            trailing_completed_keystrokes_trimmed=trimmed_completed,
+        )
 
     @staticmethod
     def _compute_overlap_union_ns(
@@ -305,8 +366,6 @@ class KeystrokeBuilder:
                     for idx in active:
                         overlap[idx] += duration
 
-            # Starting before ending at the same timestamp correctly handles
-            # zero-duration intervals while adding no positive overlap.
             for idx in starts.get(timestamp, ()):
                 active.add(idx)
             for idx in ends.get(timestamp, ()):

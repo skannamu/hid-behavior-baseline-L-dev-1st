@@ -6,9 +6,9 @@ import hashlib
 from pathlib import Path
 from typing import Final, Iterable
 
-FEATURE_SCHEMA_VERSION: Final[str] = "2.0.0-draft.1"
+FEATURE_SCHEMA_VERSION: Final[str] = "2.0.0"
 EXPECTED_SCHEMA_SHA256: Final[str] = (
-    "cd169ba9f1f2a37ee2aab29ba33fff32f2c386c9e819bd01ed2dbd85984e20b1"
+    "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2"
 )
 
 WINDOW_SIZE: Final[int] = 50
@@ -38,7 +38,7 @@ WINDOW_CONTEXT_FEATURES: Final[tuple[str, ...]] = (
     "pause_rate",
     "pause_time_fraction",
     "max_pause_interval_s",
-    "mean_burst_length_keys",
+    "hold_time_robust_cv",
     "max_burst_length_keys",
     "correction_rate",
     "command_shortcut_rate",

@@ -111,6 +111,10 @@ class KeystrokeState:
 class BuildResult:
     states: tuple[KeystrokeState, ...]
     quality_events: tuple[QualityEvent, ...]
+    boundary_cutoff_raw_event_index: Optional[int] = None
+    boundary_cutoff_timestamp_ns: Optional[int] = None
+    incomplete_key_count: int = 0
+    trailing_completed_keystrokes_trimmed: int = 0
 
 
 @dataclass(frozen=True)
