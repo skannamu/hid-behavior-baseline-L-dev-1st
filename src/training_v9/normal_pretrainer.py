@@ -60,6 +60,15 @@ class NormalPretrainConfig:
     test_ratio: float = 0.15
     split_group_mode: str = "participant"
 
+    explicit_train_groups: tuple[str, ...] | None = None
+    explicit_calibration_groups: tuple[str, ...] | None = None
+    explicit_test_groups: tuple[str, ...] | None = None
+
+    # Main-paper experiments keep the held-out Test participant
+    # completely unscored until D_final has been selected.
+    # Legacy/smoke execution may deliberately enable this.
+    evaluate_test_during_pretraining: bool = True
+
     balance_training: bool = True
     training_window_stride: int = 5
     training_balance_mode: str = "equal"
@@ -108,7 +117,18 @@ class NormalPretrainConfig:
         if not 0.0 < self.target_fpr < 1.0:
             raise ValueError("target_fpr must be in (0, 1)")
 
-        GroupSplitConfig(group_mode=self.split_group_mode).validate()
+        GroupSplitConfig(
+            train_ratio=self.train_ratio,
+            calibration_ratio=self.calibration_ratio,
+            test_ratio=self.test_ratio,
+            seed=self.seed,
+            group_mode=self.split_group_mode,
+            explicit_train_groups=self.explicit_train_groups,
+            explicit_calibration_groups=(
+                self.explicit_calibration_groups
+            ),
+            explicit_test_groups=self.explicit_test_groups,
+        ).validate()
         BalancedSamplingConfig(
             enabled=self.balance_training,
             window_stride=self.training_window_stride,
@@ -130,8 +150,8 @@ class NormalPretrainResult:
     prototype_threshold: float
     calibration_reconstruction_fpr: float
     calibration_prototype_fpr: float
-    test_reconstruction_fpr: float
-    test_prototype_fpr: float
+    test_reconstruction_fpr: float | None
+    test_prototype_fpr: float | None
 
 
 def _atomic_json(path: Path, payload: Any) -> None:
@@ -324,6 +344,15 @@ def run_normal_pretraining(
             test_ratio=cfg.test_ratio,
             seed=cfg.seed,
             group_mode=cfg.split_group_mode,
+            explicit_train_groups=(
+                cfg.explicit_train_groups
+            ),
+            explicit_calibration_groups=(
+                cfg.explicit_calibration_groups
+            ),
+            explicit_test_groups=(
+                cfg.explicit_test_groups
+            ),
         ),
     )
 
@@ -349,10 +378,14 @@ def run_normal_pretraining(
         split.calibration.sequence_array,
         split.calibration.context_array,
     )
-    test_sequence, test_context = normalizer.transform(
-        split.test.sequence_array,
-        split.test.context_array,
-    )
+    test_sequence = None
+    test_context = None
+
+    if cfg.evaluate_test_during_pretraining:
+        test_sequence, test_context = normalizer.transform(
+            split.test.sequence_array,
+            split.test.context_array,
+        )
 
     train_tensor_sequence = torch.from_numpy(train_sequence).float()
     train_tensor_context = torch.from_numpy(train_context).float()
@@ -362,8 +395,20 @@ def run_normal_pretraining(
     calibration_tensor_context = torch.from_numpy(
         calibration_context
     ).float()
-    test_tensor_sequence = torch.from_numpy(test_sequence).float()
-    test_tensor_context = torch.from_numpy(test_context).float()
+    test_tensor_sequence = None
+    test_tensor_context = None
+
+    if cfg.evaluate_test_during_pretraining:
+        assert test_sequence is not None
+        assert test_context is not None
+
+        test_tensor_sequence = torch.from_numpy(
+            test_sequence
+        ).float()
+
+        test_tensor_context = torch.from_numpy(
+            test_context
+        ).float()
 
     if cfg.device.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError(
@@ -416,6 +461,7 @@ def run_normal_pretraining(
     })
     _atomic_json(run_dir / "split_manifest.json", {
         "group_mode": split.group_mode,
+        "assignment_mode": split.assignment_mode,
         "train_groups": list(split.train_groups),
         "calibration_groups": list(split.calibration_groups),
         "test_groups": list(split.test_groups),
@@ -431,6 +477,11 @@ def run_normal_pretraining(
         ),
         "split_seed": cfg.seed,
         "random_window_split": False,
+        "test_evaluation_timing": (
+            "during_pretraining"
+            if cfg.evaluate_test_during_pretraining
+            else "deferred_until_final"
+        ),
     })
     _atomic_json(run_dir / "normalizer.json", normalizer.state_dict())
 
@@ -605,37 +656,76 @@ def run_normal_pretraining(
         "classifier_trained": False,
     })
 
-    # Untouched final normal test: thresholds are already frozen.
-    test_scores = _score_all(
-        model,
-        test_tensor_sequence,
-        test_tensor_context,
-        batch_size=cfg.batch_size,
-        device=device,
-        context_weight=cfg.score_context_weight,
-    )
-    test_reconstruction_fpr = empirical_fpr(
-        test_scores["reconstruction_combined"],
-        reconstruction_threshold,
-    )
-    test_prototype_fpr = empirical_fpr(
-        test_scores["prototype_distance"],
-        prototype_threshold,
-    )
+    
+    test_reconstruction_fpr: float | None = None
+    test_prototype_fpr: float | None = None
 
-    _atomic_json(run_dir / "test_metrics.json", {
-        "source_split": "untouched_test",
-        "threshold_source": "calibration_only",
-        "test_windows": len(split.test),
-        "reconstruction_fpr": test_reconstruction_fpr,
-        "prototype_fpr": test_prototype_fpr,
-        "classifier_metrics": None,
-        "attack_detection_metrics": None,
-        "reason": (
-            "Normal-only pretraining cannot estimate ADR/TPR. "
-            "Classifier and attack metrics require independent attacks."
-        ),
-    })
+    if cfg.evaluate_test_during_pretraining:
+        assert test_tensor_sequence is not None
+        assert test_tensor_context is not None
+
+        # Legacy/smoke behavior. Thresholds remain calibration-only.
+        test_scores = _score_all(
+            model,
+            test_tensor_sequence,
+            test_tensor_context,
+            batch_size=cfg.batch_size,
+            device=device,
+            context_weight=cfg.score_context_weight,
+        )
+
+        test_reconstruction_fpr = empirical_fpr(
+            test_scores["reconstruction_combined"],
+            reconstruction_threshold,
+        )
+
+        test_prototype_fpr = empirical_fpr(
+            test_scores["prototype_distance"],
+            prototype_threshold,
+        )
+
+        _atomic_json(
+            run_dir / "test_metrics.json",
+            {
+                "source_split": "untouched_test",
+                "status": "evaluated",
+                "threshold_source": "calibration_only",
+                "test_windows": len(split.test),
+                "reconstruction_fpr": (
+                    test_reconstruction_fpr
+                ),
+                "prototype_fpr": (
+                    test_prototype_fpr
+                ),
+                "classifier_metrics": None,
+                "attack_detection_metrics": None,
+            },
+        )
+
+    else:
+        # Main-paper protocol:
+        # Test is known only as a reserved participant identity here.
+        # No Test feature normalization, scoring, or FPR computation
+        # occurs before D_final.
+        _atomic_json(
+            run_dir / "test_metrics.json",
+            {
+                "source_split": "untouched_test",
+                "status": "deferred_until_final",
+                "threshold_source": "calibration_only",
+                "test_windows": len(split.test),
+                "reconstruction_fpr": None,
+                "prototype_fpr": None,
+                "classifier_metrics": None,
+                "attack_detection_metrics": None,
+                "reason": (
+                    "Main-experiment protocol defers all "
+                    "normal Test scoring until D_final is frozen."
+                ),
+            },
+        )
+
+
 
     result = NormalPretrainResult(
         run_dir=str(run_dir),

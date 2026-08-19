@@ -20,6 +20,14 @@ class GroupSplitConfig:
     seed: int = 20260804
     group_mode: str = "participant_session"
 
+    # Optional exact role assignment.
+    #
+    # When supplied, all three must be supplied and together
+    # must exactly cover every observed group in the dataset.
+    explicit_train_groups: tuple[str, ...] | None = None
+    explicit_calibration_groups: tuple[str, ...] | None = None
+    explicit_test_groups: tuple[str, ...] | None = None
+
     def validate(self) -> None:
         values = (self.train_ratio, self.calibration_ratio, self.test_ratio)
         if any(value <= 0 for value in values):
@@ -34,6 +42,54 @@ class GroupSplitConfig:
                 f"expected one of {sorted(SUPPORTED_GROUP_MODES)}"
             )
 
+        explicit = (
+            self.explicit_train_groups,
+            self.explicit_calibration_groups,
+            self.explicit_test_groups,
+        )
+
+        if any(value is not None for value in explicit):
+            if any(value is None for value in explicit):
+                raise ValueError(
+                    "Explicit group assignment requires train, "
+                    "calibration, and test groups together"
+                )
+
+            assert self.explicit_train_groups is not None
+            assert self.explicit_calibration_groups is not None
+            assert self.explicit_test_groups is not None
+
+            named = {
+                "train": self.explicit_train_groups,
+                "calibration": self.explicit_calibration_groups,
+                "test": self.explicit_test_groups,
+            }
+
+            resolved: dict[str, set[str]] = {}
+
+            for name, values in named.items():
+                if not values:
+                    raise ValueError(
+                        f"Explicit {name} groups must not be empty"
+                    )
+
+                if len(set(values)) != len(values):
+                    raise ValueError(
+                        f"Explicit {name} groups contain duplicates"
+                    )
+
+                resolved[name] = set(values)
+
+            if (
+                resolved["train"] & resolved["calibration"]
+                or resolved["train"] & resolved["test"]
+                or resolved["calibration"] & resolved["test"]
+            ):
+                raise ValueError(
+                    "Explicit group assignment contains leakage "
+                    "across train/calibration/test"
+                )
+
 
 @dataclass(frozen=True)
 class GroupSplit:
@@ -45,6 +101,7 @@ class GroupSplit:
     calibration_groups: tuple[str, ...]
     test_groups: tuple[str, ...]
     group_mode: str = "custom"
+    assignment_mode: str = "deterministic_ratio"
 
     def assert_disjoint(self) -> None:
         train = set(self.train_groups)
@@ -102,31 +159,109 @@ def split_by_group(
             "prohibited because stride-1 windows overlap by 49/50."
         )
 
-    n_groups = len(group_names)
-    n_train = max(1, int(n_groups * config.train_ratio))
-    n_calibration = max(1, int(n_groups * config.calibration_ratio))
+    if config.explicit_train_groups is not None:
+        assert config.explicit_calibration_groups is not None
+        assert config.explicit_test_groups is not None
 
-    # Preserve at least one final-test group.
-    if n_train + n_calibration >= n_groups:
-        overflow = n_train + n_calibration - (n_groups - 1)
-        if n_train > n_calibration:
-            n_train -= overflow
-        else:
-            n_calibration -= overflow
-
-    if n_train < 1 or n_calibration < 1:
-        raise ValueError(
-            "Not enough groups to create non-empty train/calibration/test splits"
+        train_groups = tuple(
+            config.explicit_train_groups
+        )
+        calibration_groups = tuple(
+            config.explicit_calibration_groups
+        )
+        test_groups = tuple(
+            config.explicit_test_groups
         )
 
-    train_groups = tuple(group_names[:n_train])
-    calibration_groups = tuple(
-        group_names[n_train : n_train + n_calibration]
-    )
-    test_groups = tuple(group_names[n_train + n_calibration :])
+        observed = set(groups)
 
-    if not test_groups:
-        raise ValueError("Final-test group set is empty")
+        assigned = (
+            set(train_groups)
+            | set(calibration_groups)
+            | set(test_groups)
+        )
+
+        unknown = sorted(assigned - observed)
+        missing = sorted(observed - assigned)
+
+        if unknown:
+            raise ValueError(
+                "Explicit split references unknown groups: "
+                f"{unknown}"
+            )
+
+        if missing:
+            raise ValueError(
+                "Explicit split does not assign every observed group: "
+                f"{missing}"
+            )
+
+        assignment_mode = "explicit"
+
+    else:
+        n_groups = len(group_names)
+        n_train = max(
+            1,
+            int(n_groups * config.train_ratio),
+        )
+        n_calibration = max(
+            1,
+            int(
+                n_groups
+                * config.calibration_ratio
+            ),
+        )
+
+        # Preserve at least one final-test group.
+        if (
+            n_train + n_calibration
+            >= n_groups
+        ):
+            overflow = (
+                n_train
+                + n_calibration
+                - (n_groups - 1)
+            )
+
+            if n_train > n_calibration:
+                n_train -= overflow
+            else:
+                n_calibration -= overflow
+
+        if (
+            n_train < 1
+            or n_calibration < 1
+        ):
+            raise ValueError(
+                "Not enough groups to create non-empty "
+                "train/calibration/test splits"
+            )
+
+        train_groups = tuple(
+            group_names[:n_train]
+        )
+
+        calibration_groups = tuple(
+            group_names[
+                n_train:
+                n_train + n_calibration
+            ]
+        )
+
+        test_groups = tuple(
+            group_names[
+                n_train + n_calibration:
+            ]
+        )
+
+        if not test_groups:
+            raise ValueError(
+                "Final-test group set is empty"
+            )
+
+        assignment_mode = (
+            "deterministic_ratio"
+        )
 
     def indices_for(selected: Sequence[str]) -> list[int]:
         return [
@@ -143,6 +278,7 @@ def split_by_group(
         calibration_groups=calibration_groups,
         test_groups=test_groups,
         group_mode=resolved_mode,
+        assignment_mode=assignment_mode,
     )
     result.assert_disjoint()
     return result
