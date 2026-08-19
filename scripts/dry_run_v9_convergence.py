@@ -23,10 +23,12 @@ from src.coevolution_v9 import (
     CoevolutionRoundConfig,
     ConvergenceConfig,
     ExperimentLoopConfig,
+    FinalEvaluationConfig,
     HardenedTrainingConfig,
     RawAttackGenerationConfig,
     WeaknessMiningConfig,
     run_experiment_loop,
+    run_final_evaluation,
 )
 
 from src.data_v2 import (
@@ -262,6 +264,47 @@ def main() -> None:
                 f"candidate, got {final_dir}"
             )
 
+        # ------------------------------------------------------
+        # One-shot A_final / V_final.
+        # Only after the convergence loop has selected D_final.
+        # ------------------------------------------------------
+        final_result = run_final_evaluation(
+            final_defender_run_dir=(
+                result["final_defender_run_dir"]
+            ),
+            normal_dataset_root=normal_root,
+            normal_manifest_path=(
+                manifest_paths["jsonl"]
+            ),
+            coevolution_timeline_path=(
+                result["timeline_path"]
+            ),
+            output_dir=(
+                workspace / "final_evaluation"
+            ),
+            config=FinalEvaluationConfig(
+                seed=990260807,
+                candidates=6,
+                keystrokes_per_candidate=60,
+                mutation_strength=0.0,
+                batch_size=8,
+                device="cpu",
+            ),
+        )
+
+        if final_result["status"] != "PASS":
+            raise RuntimeError(
+                "Final evaluation did not PASS"
+            )
+
+        if (
+            final_result["lineage_audit_status"]
+            != "PASS"
+        ):
+            raise RuntimeError(
+                "A_final lineage audit did not PASS"
+            )
+
         payload = {
             "status": "PASS",
             "normal_validation": (
@@ -269,16 +312,19 @@ def main() -> None:
             ),
             "d0": asdict(d0),
             "coevolution": result,
+            "final_evaluation": final_result,
             "assertions": {
                 "probe_count": 2,
                 "D0_hardened_to_D1": True,
                 "D1_was_probed": True,
                 "D2_was_not_created": True,
                 "final_defender_is_D1": True,
-                "A_final_used": False,
+                "A_final_used_only_after_convergence": True,
+                "A_final_lineage_audit_passed": True,
             },
             "note": (
                 "Synthetic execution smoke only. "
+                "A_final is executed only after convergence. "
                 "Thresholds of 1.0 are deliberately permissive "
                 "to verify convergence control flow and are not "
                 "research protocol values."
