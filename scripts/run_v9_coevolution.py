@@ -139,6 +139,10 @@ def main() -> None:
             ),
             selection_seed=args.seed,
             require_full_budget=True,
+            preserve_parent_family_coverage=(
+                profile["parent_selection_mode"]
+                != "none"
+            ),
             batch_size=args.batch_size,
             device=args.device,
         ),

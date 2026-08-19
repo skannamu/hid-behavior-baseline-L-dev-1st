@@ -16,6 +16,7 @@ from src.features.schema import WINDOW_SIZE, expected_window_columns
 from .bundle import DefenderBundle, load_defender_bundle
 from .common import atomic_json, sha256_file, write_csv_rows, write_jsonl
 from .selection_strategies import (
+    family_diverse_take,
     random_diverse_select,
     random_parent_entries,
 )
@@ -31,6 +32,7 @@ class WeaknessMiningConfig:
     parent_selection_mode: str = "guided"
     selection_seed: int = 20260807
     require_full_budget: bool = False
+    preserve_parent_family_coverage: bool = False
 
     batch_size: int = 256
     device: str = "cpu"
@@ -211,6 +213,7 @@ def _select_parent_entries(
     prediction_rows: list[dict[str, Any]],
     *,
     limit: int,
+    preserve_family_coverage: bool = False,
 ) -> list[dict[str, Any]]:
     by_candidate: dict[str, list[dict[str, Any]]] = {}
     for row in prediction_rows:
@@ -235,7 +238,20 @@ def _select_parent_entries(
             },
         ))
     ranked.sort(key=lambda item: item[:4])
-    return [item[4] for item in ranked[:limit]]
+
+    ranked_entries = [
+        item[4]
+        for item in ranked
+    ]
+
+    if preserve_family_coverage:
+        return family_diverse_take(
+            ranked_entries,
+            limit=limit,
+            require_full_coverage=True,
+        )
+
+    return ranked_entries[:limit]
 
 
 def _family_bypass_statistics(
@@ -356,12 +372,18 @@ def mine_v9_weaknesses(
             entries,
             prediction_rows,
             limit=cfg.max_parent_sessions,
+            preserve_family_coverage=(
+                cfg.preserve_parent_family_coverage
+            ),
         )
     elif cfg.parent_selection_mode == "random":
         parent_entries = random_parent_entries(
             entries,
             limit=cfg.max_parent_sessions,
             seed=cfg.selection_seed + 1,
+            preserve_family_coverage=(
+                cfg.preserve_parent_family_coverage
+            ),
         )
     else:
         parent_entries = []
@@ -409,6 +431,13 @@ def mine_v9_weaknesses(
         ),
         "scores_computed_for_audit": True,
         "full_budget_required": cfg.require_full_budget,
+        "preserve_parent_family_coverage": (
+            cfg.preserve_parent_family_coverage
+        ),
+        "selected_parent_families": sorted({
+            str(entry["family"])
+            for entry in parent_entries
+        }),
         "predictions_path": str(predictions_path),
         "hard_window_path": str(hard_window_path),
         "hard_window_sha256": sha256_file(hard_window_path),

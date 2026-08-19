@@ -12,7 +12,12 @@ from .hardened_trainer import (
     HardenedTrainingResult,
     train_hardened_defender_v9,
 )
-from .round_runner import CoevolutionRoundConfig, run_coevolution_round
+from .round_runner import (
+    CoevolutionRoundConfig,
+    probe_coevolution_round,
+    harden_coevolution_probe,
+    run_coevolution_round,
+)
 from .convergence import (
     ConvergenceConfig,
     ConvergenceDecision,
@@ -38,6 +43,8 @@ __all__ = [
     "HardenedTrainingResult",
     "train_hardened_defender_v9",
     "CoevolutionRoundConfig",
+    "probe_coevolution_round",
+    "harden_coevolution_probe",
     "run_coevolution_round",
     "ConvergenceConfig",
     "ConvergenceDecision",
