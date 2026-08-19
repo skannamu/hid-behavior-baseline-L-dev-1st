@@ -62,6 +62,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--normal-root", required=True)
     p.add_argument("--output-root", required=True)
 
+    # Paper-grade explicit participant roles.
+    p.add_argument(
+        "--train-groups",
+        nargs="+",
+        required=True,
+    )
+    p.add_argument(
+        "--calibration-group",
+        required=True,
+    )
+    p.add_argument(
+        "--test-group",
+        required=True,
+    )
+
     p.add_argument(
         "--method",
         choices=tuple(METHOD_PROFILES),
@@ -206,6 +221,41 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    if len(args.train_groups) != 4:
+        raise ValueError(
+            "Paper protocol requires exactly "
+            "four Train participants"
+        )
+
+    train_groups = tuple(
+        args.train_groups
+    )
+
+    if len(set(train_groups)) != 4:
+        raise ValueError(
+            "Train participant IDs must be unique"
+        )
+
+    calibration_group = str(
+        args.calibration_group
+    )
+
+    test_group = str(
+        args.test_group
+    )
+
+    all_roles = (
+        set(train_groups)
+        | {calibration_group}
+        | {test_group}
+    )
+
+    if len(all_roles) != 6:
+        raise ValueError(
+            "Train/Calibration/Test participant "
+            "roles must be mutually disjoint"
+        )
+
     normal_root = Path(
         args.normal_root
     ).resolve()
@@ -294,6 +344,15 @@ def main() -> None:
             patience=args.d0_patience,
             target_fpr=args.target_fpr,
             split_group_mode="participant",
+            explicit_train_groups=(
+                train_groups
+            ),
+            explicit_calibration_groups=(
+                calibration_group,
+            ),
+            explicit_test_groups=(
+                test_group,
+            ),
             evaluate_test_during_pretraining=False,
             balance_training=True,
             training_window_stride=(
