@@ -77,8 +77,35 @@ class FinalEvaluationConfig:
 
 
 def _resolve_recorded_path(value: str | Path, *, anchor: Path) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else (anchor / path).resolve()
+    """Resolve artifact paths recorded in manifests/timelines robustly.
+
+    Historical artifacts may contain:
+      * absolute paths,
+      * paths relative to the process working directory/repository root,
+      * paths relative to the manifest/timeline directory.
+
+    Try existing candidates from the current working directory and every
+    ancestor of the anchor before falling back to anchor-relative resolution.
+    """
+    path = Path(value).expanduser()
+
+    if path.is_absolute():
+        return path.resolve()
+
+    bases = [Path.cwd(), anchor, *anchor.parents]
+    seen: set[str] = set()
+
+    for base in bases:
+        candidate = (base / path).resolve()
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if candidate.exists():
+            return candidate
+
+    return (anchor / path).resolve()
 
 
 def _prepare_empty_output(path: str | Path) -> Path:

@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument("--keep-workspace", action="store_true")
     args = parser.parse_args()
 
-    output_root = Path(args.output_root)
+    output_root = Path(args.output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     workspace = Path(tempfile.mkdtemp(prefix="v9_final_eval_", dir=output_root))

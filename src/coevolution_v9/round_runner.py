@@ -41,7 +41,7 @@ def run_coevolution_round(
     if round_index < 0:
         raise ValueError("round_index must be non-negative")
     cfg = config or CoevolutionRoundConfig()
-    root = Path(output_root) / f"round_{round_index:02d}"
+    root = Path(output_root).resolve() / f"round_{round_index:02d}"
     if root.exists():
         raise FileExistsError(root)
     root.mkdir(parents=True)

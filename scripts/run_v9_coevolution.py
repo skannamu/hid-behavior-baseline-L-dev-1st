@@ -48,7 +48,8 @@ def main() -> None:
     if args.rounds <= 0:
         raise ValueError("--rounds must be positive")
 
-    parent_run = Path(args.d0_run_dir)
+    output_root = Path(args.output_root).resolve()
+    parent_run = Path(args.d0_run_dir).resolve()
     parent_policy: Path | None = None
     timeline = []
     base_config = CoevolutionRoundConfig(
@@ -90,7 +91,7 @@ def main() -> None:
             parent_defender_run_dir=parent_run,
             normal_dataset_root=args.normal_root,
             normal_manifest_path=args.normal_manifest,
-            output_root=args.output_root,
+            output_root=output_root,
             parent_policy_path=parent_policy,
             config=round_config,
         )
@@ -104,7 +105,7 @@ def main() -> None:
         parent_run = Path(result["next_defender_run_dir"])
         parent_policy = Path(result["next_parent_policy_path"])
 
-    output = Path(args.output_root) / "coevolution_timeline.json"
+    output = output_root / "coevolution_timeline.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps({
         "status": "PASS",
