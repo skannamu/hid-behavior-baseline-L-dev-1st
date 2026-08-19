@@ -133,6 +133,7 @@ def main() -> None:
                     max_attack_train_windows=24,
                     device="cpu",
                     deterministic=True,
+
                 ),
             ),
         )
