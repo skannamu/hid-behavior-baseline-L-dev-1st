@@ -61,6 +61,8 @@ def probe_coevolution_round(
     output_root: str | Path,
     parent_policy_path: str | Path | None = None,
     config: CoevolutionRoundConfig | None = None,
+    probe_label: str | None = None,
+    generation_override: int | None = None,
 ) -> dict[str, Any]:
     """Generate A_k and evaluate/mine it against the current D_k.
 
@@ -75,9 +77,14 @@ def probe_coevolution_round(
     cfg = config or CoevolutionRoundConfig()
     _validate_method(cfg.method)
 
+    root_name = f"round_{round_index:02d}"
+
+    if probe_label is not None:
+        root_name += f"_{probe_label}"
+
     root = (
         Path(output_root).resolve()
-        / f"round_{round_index:02d}"
+        / root_name
     )
 
     if root.exists():
@@ -87,9 +94,18 @@ def probe_coevolution_round(
 
     attack_name = f"A{round_index}"
 
+    if probe_label is not None:
+        attack_name += f"_{probe_label}"
+
+    generation_index = (
+        round_index
+        if generation_override is None
+        else generation_override
+    )
+
     generation_cfg = replace(
         cfg.attack_generation,
-        generation=round_index,
+        generation=generation_index,
         parent_policy_path=(
             str(parent_policy_path)
             if parent_policy_path is not None
@@ -114,6 +130,8 @@ def probe_coevolution_round(
         "probe_format_version": PROBE_FORMAT_VERSION,
         "experiment_method": cfg.method,
         "round_index": round_index,
+        "probe_label": probe_label,
+        "attack_generation_index": generation_index,
         "attack_id": attack_name,
         "parent_defender_run_dir": str(
             Path(parent_defender_run_dir)

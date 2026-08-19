@@ -236,22 +236,73 @@ def main() -> None:
                 f'{result["stop_reason"]}'
             )
 
-        if len(result["timeline"]) != 2:
+        if len(result["timeline"]) != 4:
             raise RuntimeError(
-                "Expected exactly two probes"
+                "Expected four fresh probes: "
+                "two against D0 and two against D1"
             )
 
-        first = result["timeline"][0]
-        second = result["timeline"][1]
+        first, second, third, fourth = (
+            result["timeline"]
+        )
 
-        if first["next_defender_run_dir"] is None:
+        first_defender = Path(
+            first["evaluated_defender_run_dir"]
+        ).name
+
+        second_defender = Path(
+            second["evaluated_defender_run_dir"]
+        ).name
+
+        third_defender = Path(
+            third["evaluated_defender_run_dir"]
+        ).name
+
+        fourth_defender = Path(
+            fourth["evaluated_defender_run_dir"]
+        ).name
+
+        if (
+            first_defender != "D0"
+            or second_defender != "D0"
+        ):
             raise RuntimeError(
-                "First probe should harden D1"
+                "D0 did not receive two fresh probes"
             )
 
-        if second["next_defender_run_dir"] is not None:
+        if (
+            first["verification_index"] != 0
+            or second["verification_index"] != 1
+        ):
             raise RuntimeError(
-                "Converged probe must not create D2"
+                "D0 verification indices are incorrect"
+            )
+
+        if second["next_defender_run_dir"] is None:
+            raise RuntimeError(
+                "D0 should harden to D1 because "
+                "min_rounds=2"
+            )
+
+        if (
+            third_defender != "D1"
+            or fourth_defender != "D1"
+        ):
+            raise RuntimeError(
+                "D1 did not receive two fresh probes"
+            )
+
+        if (
+            third["verification_index"] != 0
+            or fourth["verification_index"] != 1
+        ):
+            raise RuntimeError(
+                "D1 verification indices are incorrect"
+            )
+
+        if fourth["next_defender_run_dir"] is not None:
+            raise RuntimeError(
+                "Converged D1 must not create D2"
             )
 
         final_dir = Path(
@@ -260,8 +311,8 @@ def main() -> None:
 
         if final_dir.name != "D1":
             raise RuntimeError(
-                "Expected probed D1 to become final "
-                f"candidate, got {final_dir}"
+                "Expected D1 to become D_final, "
+                f"got {final_dir}"
             )
 
         # ------------------------------------------------------
@@ -314,7 +365,8 @@ def main() -> None:
             "coevolution": result,
             "final_evaluation": final_result,
             "assertions": {
-                "probe_count": 2,
+                "probe_count": 4,
+                "same_defender_fresh_probe_patience": True,
                 "D0_hardened_to_D1": True,
                 "D1_was_probed": True,
                 "D2_was_not_created": True,

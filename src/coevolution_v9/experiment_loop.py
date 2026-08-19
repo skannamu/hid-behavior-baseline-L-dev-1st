@@ -318,13 +318,12 @@ def run_experiment_loop(
 
     # ==========================================================
     # CONVERGENCE MODE
+    #
+    # Patience is measured using independently regenerated attack
+    # populations against the SAME frozen defender.
     # ==========================================================
 
     assert loop_config.convergence is not None
-
-    tracker = ConvergenceTracker(
-        loop_config.convergence
-    )
 
     decisions: list[
         ConvergenceDecision
@@ -333,134 +332,210 @@ def run_experiment_loop(
     final_defender: str | None = None
     stop_reason: str | None = None
 
-    max_probes = (
+    global_probe_index = 0
+
+    for defender_index in range(
         loop_config.convergence.max_rounds
-    )
-
-    for round_index in range(max_probes):
-        round_config = _round_config_for_index(
-            base_round_config,
-            round_index=round_index,
-            seed=loop_config.seed,
+    ):
+        # Never carry patience across different defenders.
+        tracker = ConvergenceTracker(
+            loop_config.convergence
         )
 
-        inherited_policy = (
-            current_parent_policy
-            if profile.inherit_parent_policy
-            else None
-        )
+        hardening_probe: dict[str, Any] | None = None
+        hardening_config: CoevolutionRoundConfig | None = None
+        defender_converged = False
 
-        probe = probe_coevolution_round(
-            round_index=round_index,
-            parent_defender_run_dir=(
-                current_defender
-            ),
-            normal_dataset_root=(
-                normal_dataset_root
-            ),
-            normal_manifest_path=(
-                normal_manifest_path
-            ),
-            output_root=root,
-            parent_policy_path=(
-                inherited_policy
-            ),
-            config=round_config,
-        )
+        for verification_index in range(
+            loop_config.convergence.patience
+        ):
+            round_config = _round_config_for_index(
+                base_round_config,
+                round_index=global_probe_index,
+                seed=loop_config.seed,
+            )
 
-        weakness = probe[
-            "weakness_mining"
-        ]
+            inherited_policy = (
+                current_parent_policy
+                if profile.inherit_parent_policy
+                else None
+            )
 
-        decision = tracker.evaluate(
-            probe_index=round_index,
-            weakness_summary=weakness,
-        )
+            probe_label = (
+                f"probe_{verification_index:02d}"
+            )
 
-        decisions.append(decision)
+            probe = probe_coevolution_round(
+                round_index=defender_index,
+                parent_defender_run_dir=(
+                    current_defender
+                ),
+                normal_dataset_root=(
+                    normal_dataset_root
+                ),
+                normal_manifest_path=(
+                    normal_manifest_path
+                ),
+                output_root=root,
+                parent_policy_path=(
+                    inherited_policy
+                ),
+                config=round_config,
+                probe_label=probe_label,
+                generation_override=(
+                    global_probe_index
+                ),
+            )
 
-        entry: dict[str, Any] = {
-            "round_index": round_index,
-            "seed": (
-                loop_config.seed
-                + round_index * 10_000
-            ),
-            "evaluated_defender_run_dir": str(
-                current_defender
-            ),
-            "probe_manifest_path": (
-                probe[
-                    "probe_manifest_path"
-                ]
-            ),
-            "round_manifest_path": None,
-            "next_defender_run_dir": None,
-            "attack_window_count": (
-                weakness[
-                    "attack_window_count"
-                ]
-            ),
-            "bypass_rate": (
-                weakness["bypass_rate"]
-            ),
-            "family_bypass": (
-                weakness["family_bypass"]
-            ),
-            "worst_family_bypass_rate": (
-                weakness[
-                    "worst_family_bypass_rate"
-                ]
-            ),
-            "hard_negative_count": (
-                weakness[
-                    "hard_negative_count"
-                ]
-            ),
-            "selected_parent_session_count": (
-                weakness[
-                    "selected_parent_session_count"
-                ]
-            ),
-            "stop_decision": (
-                decision.to_dict()
-            ),
-        }
+            weakness = probe[
+                "weakness_mining"
+            ]
 
-        # Crucial semantics:
-        # The defender that was actually probed is the one
-        # eligible to become D_final.
-        if decision.should_stop:
-            stop_reason = decision.stop_reason
+            decision = tracker.evaluate(
+                probe_index=verification_index,
+                completed_rounds=(
+                    defender_index + 1
+                ),
+                weakness_summary=weakness,
+                # The outer loop owns the defender-stage cap.
+                enforce_max_rounds=False,
+            )
 
-            if (
-                decision.stop_reason
-                == "converged"
-            ):
+            decisions.append(decision)
+
+            entry: dict[str, Any] = {
+                "round_index": defender_index,
+                "defender_index": defender_index,
+                "probe_sequence_index": (
+                    global_probe_index
+                ),
+                "verification_index": (
+                    verification_index
+                ),
+                "probe_role": (
+                    "primary"
+                    if verification_index == 0
+                    else "verification"
+                ),
+                "seed": (
+                    loop_config.seed
+                    + global_probe_index * 10_000
+                ),
+                "evaluated_defender_run_dir": str(
+                    current_defender
+                ),
+                "probe_manifest_path": (
+                    probe[
+                        "probe_manifest_path"
+                    ]
+                ),
+                "round_manifest_path": None,
+                "next_defender_run_dir": None,
+                "attack_window_count": (
+                    weakness[
+                        "attack_window_count"
+                    ]
+                ),
+                "bypass_rate": (
+                    weakness["bypass_rate"]
+                ),
+                "family_bypass": (
+                    weakness["family_bypass"]
+                ),
+                "worst_family_bypass_rate": (
+                    weakness[
+                        "worst_family_bypass_rate"
+                    ]
+                ),
+                "hard_negative_count": (
+                    weakness[
+                        "hard_negative_count"
+                    ]
+                ),
+                "selected_parent_session_count": (
+                    weakness[
+                        "selected_parent_session_count"
+                    ]
+                ),
+                "stop_decision": (
+                    decision.to_dict()
+                ),
+            }
+
+            timeline.append(entry)
+
+            global_probe_index += 1
+
+            # The most recent independent probe becomes the exact
+            # source of hard negatives if adaptation is required.
+            hardening_probe = probe
+            hardening_config = round_config
+
+            # Any failed verification disproves convergence for D_k.
+            if not decision.robustness_condition_met:
+                break
+
+            if decision.should_stop:
                 final_defender = str(
                     current_defender
                 )
+                stop_reason = "converged"
+                defender_converged = True
+                break
 
-            timeline.append(entry)
+        if defender_converged:
             break
 
+        # The safety cap counts defender stages, not probe populations.
+        if (
+            defender_index + 1
+            >= loop_config.convergence.max_rounds
+        ):
+            stop_reason = "max_rounds_reached"
+
+            if not decisions:
+                raise RuntimeError(
+                    "Convergence cap reached without a probe"
+                )
+
+            capped = replace(
+                decisions[-1],
+                should_stop=True,
+                stop_reason="max_rounds_reached",
+            )
+
+            decisions[-1] = capped
+
+            timeline[-1][
+                "stop_decision"
+            ] = capped.to_dict()
+
+            break
+
+        if (
+            hardening_probe is None
+            or hardening_config is None
+        ):
+            raise RuntimeError(
+                "No probe available for hardening"
+            )
+
         hardened = harden_coevolution_probe(
-            probe_result=probe,
-            config=round_config,
+            probe_result=hardening_probe,
+            config=hardening_config,
         )
 
-        entry[
+        timeline[-1][
             "round_manifest_path"
         ] = hardened[
             "round_manifest_path"
         ]
 
-        entry[
+        timeline[-1][
             "next_defender_run_dir"
         ] = hardened[
             "next_defender_run_dir"
         ]
-
-        timeline.append(entry)
 
         current_defender = Path(
             hardened[
@@ -504,6 +579,15 @@ def run_experiment_loop(
             ),
             "patience": (
                 loop_config.convergence.patience
+            ),
+            "patience_scope": (
+                "same_defender_fresh_probes"
+            ),
+            "min_rounds_scope": (
+                "defender_stages"
+            ),
+            "max_rounds_scope": (
+                "defender_stages"
             ),
             "required_families": list(
                 loop_config.convergence

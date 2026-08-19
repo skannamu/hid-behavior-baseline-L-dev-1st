@@ -96,13 +96,21 @@ class ConvergenceTracker:
         *,
         probe_index: int,
         weakness_summary: dict[str, Any],
+        completed_rounds: int | None = None,
+        enforce_max_rounds: bool = True,
     ) -> ConvergenceDecision:
         if probe_index < 0:
             raise ValueError(
                 "probe_index must be non-negative"
             )
 
-        completed_rounds = probe_index + 1
+        if completed_rounds is None:
+            completed_rounds = probe_index + 1
+
+        if completed_rounds <= 0:
+            raise ValueError(
+                "completed_rounds must be positive"
+            )
 
         global_rate = float(
             weakness_summary["bypass_rate"]
@@ -185,7 +193,8 @@ class ConvergenceTracker:
         )
 
         reached_cap = (
-            completed_rounds
+            enforce_max_rounds
+            and completed_rounds
             >= self.config.max_rounds
         )
 
