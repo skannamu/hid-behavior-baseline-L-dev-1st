@@ -23,6 +23,7 @@ ROUND_FORMAT_VERSION = "recon_hid_v9_coevolution_round_v1"
 
 @dataclass(frozen=True)
 class CoevolutionRoundConfig:
+    method: str = "recon_hid"
     attack_generation: RawAttackGenerationConfig = RawAttackGenerationConfig()
     weakness_mining: WeaknessMiningConfig = WeaknessMiningConfig()
     hardened_training: HardenedTrainingConfig = HardenedTrainingConfig()
@@ -41,6 +42,16 @@ def run_coevolution_round(
     if round_index < 0:
         raise ValueError("round_index must be non-negative")
     cfg = config or CoevolutionRoundConfig()
+
+    if cfg.method not in {
+        "recon_hid",
+        "random_iterative",
+        "static_mixed",
+    }:
+        raise ValueError(
+            f"Unsupported experiment method: {cfg.method}"
+        )
+
     root = Path(output_root).resolve() / f"round_{round_index:02d}"
     if root.exists():
         raise FileExistsError(root)
@@ -79,6 +90,7 @@ def run_coevolution_round(
 
     manifest = {
         "round_format_version": ROUND_FORMAT_VERSION,
+        "experiment_method": cfg.method,
         "round_index": round_index,
         "attack_id": attack_name,
         "defender_id": defender_id,
@@ -105,6 +117,15 @@ def run_coevolution_round(
             "normal_threshold_source": "calibration_only",
             "normal_test_used_during_round": False,
             "final_holdout_attack_used_during_round": False,
+            "window_selection_mode": (
+                cfg.weakness_mining.selection_mode
+            ),
+            "parent_selection_mode": (
+                cfg.weakness_mining.parent_selection_mode
+            ),
+            "parent_policy_used_for_generation": (
+                generation_cfg.parent_policy_path is not None
+            ),
         },
     }
     manifest_path = atomic_json(root / "round_manifest.json", manifest)

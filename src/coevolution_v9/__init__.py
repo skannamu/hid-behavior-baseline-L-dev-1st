@@ -13,6 +13,12 @@ from .hardened_trainer import (
     train_hardened_defender_v9,
 )
 from .round_runner import CoevolutionRoundConfig, run_coevolution_round
+from .convergence import (
+    ConvergenceConfig,
+    ConvergenceDecision,
+    ConvergenceTracker,
+    summarize_convergence_history,
+)
 from .final_evaluator import (
     FinalEvaluationConfig,
     audit_final_lineage,
@@ -33,6 +39,10 @@ __all__ = [
     "train_hardened_defender_v9",
     "CoevolutionRoundConfig",
     "run_coevolution_round",
+    "ConvergenceConfig",
+    "ConvergenceDecision",
+    "ConvergenceTracker",
+    "summarize_convergence_history",
     "FinalEvaluationConfig",
     "audit_final_lineage",
     "freeze_defender_artifacts",

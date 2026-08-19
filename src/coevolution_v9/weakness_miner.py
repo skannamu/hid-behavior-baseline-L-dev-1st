@@ -15,13 +15,23 @@ from src.features.schema import WINDOW_SIZE, expected_window_columns
 
 from .bundle import DefenderBundle, load_defender_bundle
 from .common import atomic_json, sha256_file, write_csv_rows, write_jsonl
+from .selection_strategies import (
+    random_diverse_select,
+    random_parent_entries,
+)
 
 
 @dataclass(frozen=True)
 class WeaknessMiningConfig:
-    max_hard_windows: int = 512
+    max_hard_windows: int = 192
     max_parent_sessions: int = 8
     include_detected_fillers: bool = True
+
+    selection_mode: str = "guided"
+    parent_selection_mode: str = "guided"
+    selection_seed: int = 20260807
+    require_full_budget: bool = False
+
     batch_size: int = 256
     device: str = "cpu"
 
@@ -32,6 +42,21 @@ class WeaknessMiningConfig:
             raise ValueError("max_parent_sessions must be positive")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be positive")
+
+        if self.selection_mode not in {"guided", "random"}:
+            raise ValueError(
+                "selection_mode must be one of {'guided', 'random'}"
+            )
+
+        if self.parent_selection_mode not in {
+            "guided",
+            "random",
+            "none",
+        }:
+            raise ValueError(
+                "parent_selection_mode must be one of "
+                "{'guided', 'random', 'none'}"
+            )
 
 
 def _load_attack_manifest(path: str | Path) -> list[dict[str, Any]]:
@@ -213,6 +238,39 @@ def _select_parent_entries(
     return [item[4] for item in ranked[:limit]]
 
 
+def _family_bypass_statistics(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, float | int]]:
+    """Aggregate bypass statistics without changing selection behavior."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for row in rows:
+        family = str(row["family"])
+        grouped.setdefault(family, []).append(row)
+
+    statistics: dict[str, dict[str, float | int]] = {}
+
+    for family in sorted(grouped):
+        family_rows = grouped[family]
+        window_count = len(family_rows)
+        bypass_count = sum(
+            int(row["is_bypass"])
+            for row in family_rows
+        )
+
+        statistics[family] = {
+            "window_count": window_count,
+            "bypass_window_count": bypass_count,
+            "bypass_rate": (
+                bypass_count / window_count
+                if window_count
+                else 0.0
+            ),
+        }
+
+    return statistics
+
+
 def mine_v9_weaknesses(
     *,
     defender_run_dir: str | Path,
@@ -235,13 +293,42 @@ def mine_v9_weaknesses(
         entries,
         config=cfg,
     )
-    selected = _diverse_select(
-        prediction_rows,
-        limit=cfg.max_hard_windows,
-        include_detected_fillers=cfg.include_detected_fillers,
+
+    family_bypass = _family_bypass_statistics(
+        prediction_rows
     )
+    worst_family_bypass_rate = max(
+        (
+            float(stats["bypass_rate"])
+            for stats in family_bypass.values()
+        ),
+        default=0.0,
+    )
+    if cfg.selection_mode == "guided":
+        selected = _diverse_select(
+            prediction_rows,
+            limit=cfg.max_hard_windows,
+            include_detected_fillers=cfg.include_detected_fillers,
+        )
+    else:
+        selected = random_diverse_select(
+            prediction_rows,
+            limit=cfg.max_hard_windows,
+            seed=cfg.selection_seed,
+        )
+
     if not selected:
         raise ValueError("Weakness mining selected zero windows")
+
+    if (
+        cfg.require_full_budget
+        and len(selected) != cfg.max_hard_windows
+    ):
+        raise ValueError(
+            "Hard-negative budget was not satisfied: "
+            f"selected={len(selected)}, "
+            f"required={cfg.max_hard_windows}"
+        )
 
     predictions_path = write_csv_rows(
         output / "attack_predictions.csv",
@@ -264,11 +351,31 @@ def mine_v9_weaknesses(
             for rank, row in enumerate(selected)
         ),
     )
-    parent_entries = _select_parent_entries(
-        entries,
-        prediction_rows,
-        limit=cfg.max_parent_sessions,
-    )
+    if cfg.parent_selection_mode == "guided":
+        parent_entries = _select_parent_entries(
+            entries,
+            prediction_rows,
+            limit=cfg.max_parent_sessions,
+        )
+    elif cfg.parent_selection_mode == "random":
+        parent_entries = random_parent_entries(
+            entries,
+            limit=cfg.max_parent_sessions,
+            seed=cfg.selection_seed + 1,
+        )
+    else:
+        parent_entries = []
+
+    if (
+        cfg.require_full_budget
+        and cfg.parent_selection_mode != "none"
+        and len(parent_entries) != cfg.max_parent_sessions
+    ):
+        raise ValueError(
+            "Parent-session budget was not satisfied: "
+            f"selected={len(parent_entries)}, "
+            f"required={cfg.max_parent_sessions}"
+        )
     parent_path = write_jsonl(
         output / "selected_parent_policies.jsonl",
         parent_entries,
@@ -284,9 +391,24 @@ def mine_v9_weaknesses(
         "attack_window_count": len(prediction_rows),
         "bypass_window_count": bypass_count,
         "bypass_rate": bypass_count / len(prediction_rows),
+        "family_bypass": family_bypass,
+        "observed_families": sorted(family_bypass),
+        "worst_family_bypass_rate": (
+            worst_family_bypass_rate
+        ),
         "hard_negative_count": len(selected),
         "hard_negative_bypass_count": selected_bypass_count,
         "selected_parent_session_count": len(parent_entries),
+        "selection_mode": cfg.selection_mode,
+        "parent_selection_mode": cfg.parent_selection_mode,
+        "selection_depends_on_defender_scores": (
+            cfg.selection_mode == "guided"
+        ),
+        "parent_selection_depends_on_defender_scores": (
+            cfg.parent_selection_mode == "guided"
+        ),
+        "scores_computed_for_audit": True,
+        "full_budget_required": cfg.require_full_budget,
         "predictions_path": str(predictions_path),
         "hard_window_path": str(hard_window_path),
         "hard_window_sha256": sha256_file(hard_window_path),

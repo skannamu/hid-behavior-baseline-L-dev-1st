@@ -25,7 +25,7 @@ attack_generation:
     - correction_heavy
 
 weakness_mining:
-  max_hard_windows: 512
+  max_hard_windows: 192
   max_parent_sessions: 8
   include_detected_fillers: true
   selection: "bypass_first_then_lowest_decision_score_with_session_diversity"
