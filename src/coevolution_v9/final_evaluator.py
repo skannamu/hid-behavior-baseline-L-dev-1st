@@ -246,61 +246,269 @@ def _load_jsonl(path: str | Path) -> list[dict[str, Any]]:
 def _collect_training_lineage(
     timeline_path: str | Path,
 ) -> dict[str, Any]:
+    """Collect every attack lineage observed during co-evolution.
+
+    This includes attacks used for hardening and terminal convergence probes.
+    A_final must therefore be disjoint from the entire adaptive search lineage,
+    not merely from attacks that entered defender training.
+    """
     timeline_source = Path(timeline_path).resolve()
     timeline = read_json(timeline_source)
-    rounds = timeline.get("rounds")
-    if not isinstance(rounds, list) or not rounds:
-        raise ValueError("Co-evolution timeline contains no rounds")
+
+    # New convergence/fixed experiment-loop format.
+    items = timeline.get("timeline")
+
+    # Legacy Stable-v9 format.
+    if not isinstance(items, list):
+        items = timeline.get("rounds")
+
+    if not isinstance(items, list) or not items:
+        raise ValueError(
+            "Co-evolution timeline contains no rounds/probes"
+        )
 
     candidate_ids: set[str] = set()
     seeds: set[int] = set()
     families: set[str] = set()
     window_hashes: set[str] = set()
+
     round_manifests: list[str] = []
+    probe_manifests: list[str] = []
     attack_manifests: list[str] = []
 
-    for item in rounds:
-        if not isinstance(item, dict) or not item.get("round_manifest_path"):
-            raise ValueError("Timeline round has no round_manifest_path")
-        round_path = _resolve_recorded_path(
-            str(item["round_manifest_path"]),
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError(
+                "Timeline entry must be an object"
+            )
+
+        attack_path: Path | None = None
+
+        # ------------------------------------------------------
+        # New convergence-aware format:
+        # every probe has a probe_manifest, including the final
+        # converged probe that intentionally has no round_manifest.
+        # ------------------------------------------------------
+        probe_value = item.get(
+            "probe_manifest_path"
+        )
+
+        if probe_value:
+            probe_path = _resolve_recorded_path(
+                str(probe_value),
+                anchor=timeline_source.parent,
+            )
+
+            probe_manifest = read_json(
+                probe_path
+            )
+
+            probe_manifests.append(
+                str(probe_path)
+            )
+
+            generation = probe_manifest.get(
+                "attack_generation"
+            )
+
+            if (
+                not isinstance(generation, dict)
+                or not generation.get(
+                    "manifest_path"
+                )
+            ):
+                raise ValueError(
+                    "Probe manifest has no attack manifest: "
+                    f"{probe_path}"
+                )
+
+            attack_path = _resolve_recorded_path(
+                str(generation["manifest_path"]),
+                anchor=probe_path.parent,
+            )
+
+            # A hardened probe may additionally have a round manifest.
+            round_value = item.get(
+                "round_manifest_path"
+            )
+
+            if round_value:
+                round_path = _resolve_recorded_path(
+                    str(round_value),
+                    anchor=timeline_source.parent,
+                )
+
+                if not round_path.is_file():
+                    raise FileNotFoundError(
+                        round_path
+                    )
+
+                round_manifests.append(
+                    str(round_path)
+                )
+
+        # ------------------------------------------------------
+        # Legacy format:
+        # attack lineage is recovered from round_manifest.
+        # ------------------------------------------------------
+        else:
+            round_value = item.get(
+                "round_manifest_path"
+            )
+
+            if not round_value:
+                raise ValueError(
+                    "Timeline entry has neither "
+                    "probe_manifest_path nor round_manifest_path"
+                )
+
+            round_path = _resolve_recorded_path(
+                str(round_value),
+                anchor=timeline_source.parent,
+            )
+
+            round_manifest = read_json(
+                round_path
+            )
+
+            round_manifests.append(
+                str(round_path)
+            )
+
+            generation = round_manifest.get(
+                "attack_generation"
+            )
+
+            if (
+                not isinstance(generation, dict)
+                or not generation.get(
+                    "manifest_path"
+                )
+            ):
+                raise ValueError(
+                    "Round manifest has no attack manifest: "
+                    f"{round_path}"
+                )
+
+            attack_path = _resolve_recorded_path(
+                str(generation["manifest_path"]),
+                anchor=round_path.parent,
+            )
+
+        assert attack_path is not None
+
+        attack_manifests.append(
+            str(attack_path)
+        )
+
+        for entry in _load_jsonl(
+            attack_path
+        ):
+            candidate_ids.add(
+                str(entry["candidate_id"])
+            )
+
+            seeds.add(
+                int(entry["seed"])
+            )
+
+            families.add(
+                str(entry["family"])
+            )
+
+            if entry.get(
+                "window_sha256"
+            ):
+                window_hashes.add(
+                    str(
+                        entry[
+                            "window_sha256"
+                        ]
+                    )
+                )
+
+    # ----------------------------------------------------------
+    # Defender identity.
+    #
+    # For convergence mode, only an explicitly converged
+    # final_defender_run_dir is acceptable. A terminal defender
+    # from max_rounds exhaustion must never silently become D_final.
+    # ----------------------------------------------------------
+    if "final_defender_run_dir" in timeline:
+        final_value = timeline.get(
+            "final_defender_run_dir"
+        )
+
+        if not final_value:
+            raise ValueError(
+                "Co-evolution timeline has no converged "
+                "final defender"
+            )
+
+        latest_path = _resolve_recorded_path(
+            str(final_value),
             anchor=timeline_source.parent,
         )
-        round_manifest = read_json(round_path)
-        round_manifests.append(str(round_path))
-        generation = round_manifest.get("attack_generation")
-        if not isinstance(generation, dict) or not generation.get("manifest_path"):
-            raise ValueError(f"Round manifest has no attack manifest: {round_path}")
-        attack_path = _resolve_recorded_path(
-            str(generation["manifest_path"]),
-            anchor=round_path.parent,
-        )
-        attack_manifests.append(str(attack_path))
-        for entry in _load_jsonl(attack_path):
-            candidate_ids.add(str(entry["candidate_id"]))
-            seeds.add(int(entry["seed"]))
-            families.add(str(entry["family"]))
-            if entry.get("window_sha256"):
-                window_hashes.add(str(entry["window_sha256"]))
 
-    latest = timeline.get("latest_defender_run_dir")
-    if not latest:
-        latest = rounds[-1].get("defender_run_dir")
-    if not latest:
-        raise ValueError("Timeline has no latest defender run directory")
-    latest_path = _resolve_recorded_path(str(latest), anchor=timeline_source.parent)
+    else:
+        # Legacy timeline compatibility.
+        latest = timeline.get(
+            "latest_defender_run_dir"
+        )
+
+        if not latest:
+            latest = items[-1].get(
+                "defender_run_dir"
+            )
+
+        if not latest:
+            latest = items[-1].get(
+                "next_defender_run_dir"
+            )
+
+        if not latest:
+            raise ValueError(
+                "Timeline has no latest defender run directory"
+            )
+
+        latest_path = _resolve_recorded_path(
+            str(latest),
+            anchor=timeline_source.parent,
+        )
 
     return {
-        "timeline_path": str(timeline_source),
-        "timeline_sha256": sha256_file(timeline_source),
-        "latest_defender_run_dir": str(latest_path),
-        "round_count": len(rounds),
-        "round_manifest_paths": round_manifests,
-        "attack_manifest_paths": attack_manifests,
-        "candidate_ids": sorted(candidate_ids),
-        "seeds": sorted(seeds),
-        "families": sorted(families),
-        "window_hashes": sorted(window_hashes),
+        "timeline_path": str(
+            timeline_source
+        ),
+        "timeline_sha256": sha256_file(
+            timeline_source
+        ),
+        # Kept under the historical key for downstream compatibility.
+        "latest_defender_run_dir": str(
+            latest_path
+        ),
+        "round_count": len(items),
+        "round_manifest_paths": (
+            round_manifests
+        ),
+        "probe_manifest_paths": (
+            probe_manifests
+        ),
+        "attack_manifest_paths": (
+            attack_manifests
+        ),
+        "candidate_ids": sorted(
+            candidate_ids
+        ),
+        "seeds": sorted(
+            seeds
+        ),
+        "families": sorted(
+            families
+        ),
+        "window_hashes": sorted(
+            window_hashes
+        ),
     }
 
 
