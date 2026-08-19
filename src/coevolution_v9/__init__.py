@@ -24,6 +24,12 @@ from .convergence import (
     ConvergenceTracker,
     summarize_convergence_history,
 )
+from .experiment_loop import (
+    MethodProfile,
+    METHOD_PROFILES,
+    ExperimentLoopConfig,
+    run_experiment_loop,
+)
 from .final_evaluator import (
     FinalEvaluationConfig,
     audit_final_lineage,
@@ -50,6 +56,10 @@ __all__ = [
     "ConvergenceDecision",
     "ConvergenceTracker",
     "summarize_convergence_history",
+    "MethodProfile",
+    "METHOD_PROFILES",
+    "ExperimentLoopConfig",
+    "run_experiment_loop",
     "FinalEvaluationConfig",
     "audit_final_lineage",
     "freeze_defender_artifacts",
