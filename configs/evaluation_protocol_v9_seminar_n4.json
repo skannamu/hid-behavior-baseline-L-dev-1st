@@ -1,0 +1,104 @@
+{
+  "protocol_id": "recon_hid_v9_seminar_n4_20260820",
+  "protocol_version": 1,
+  "status": "frozen_before_main_results",
+  "frozen_date": "2026-08-20",
+  "feature_schema": {
+    "version": "2.0.0",
+    "sha256": "665802343c1e4fc4b7e94974a36879483fe98733c66ea82afd13f132817cd0f2"
+  },
+  "normal_data": {
+    "required_participants": 4,
+    "required_scenarios": [
+      "coding_controlled",
+      "english_typing",
+      "free_writing",
+      "korean_typing"
+    ],
+    "assignment_strategy": "all_ordered_calibration_test_pairs",
+    "train_count": 2,
+    "calibration_count": 1,
+    "test_count": 1,
+    "ordered_split_count": 12,
+    "normalizer_source": "train_only",
+    "prototype_source": "train_only",
+    "threshold_source": "calibration_only",
+    "test_evaluation_timing": "after_D_final_only",
+    "training_window_stride": 5,
+    "training_max_windows_per_group": 3000
+  },
+  "d0": {
+    "epochs": 50,
+    "batch_size": 128,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 8,
+    "target_fpr": 0.01
+  },
+  "coevolution": {
+    "base_seed": 20260807,
+    "candidate_sessions_per_probe": 24,
+    "keystrokes_per_candidate": 72,
+    "mutation_strength": 0.18,
+    "max_hard_windows_per_adaptation": 192,
+    "max_parent_sessions": 8,
+    "hardening_epochs": 20,
+    "hardening_batch_size": 128,
+    "hardening_learning_rate": 0.0003,
+    "required_families": [
+      "constant_fast",
+      "jittered_mimic",
+      "burst_pause",
+      "overlap_dense",
+      "shortcut_heavy",
+      "correction_heavy"
+    ]
+  },
+  "convergence": {
+    "min_defender_stages": 2,
+    "max_defender_stages": 20,
+    "global_bypass_threshold": 0.05,
+    "family_bypass_threshold": 0.1,
+    "fresh_probes_per_defender": 2,
+    "patience_scope": "same_defender_fresh_probes",
+    "stage_scope": "defender_stages",
+    "require_all_families": true
+  },
+  "final_evaluation": {
+    "base_seed": 920260807,
+    "candidate_sessions": 24,
+    "keystrokes_per_candidate": 84,
+    "mutation_strength": 0.1,
+    "heldout_families": [
+      "high_variance_mimic",
+      "long_hold_mimic",
+      "sparse_shortcut_pause"
+    ],
+    "parent_policy": null,
+    "used_for_training": false,
+    "used_for_stopping": false
+  },
+  "methods": [
+    "recon_hid",
+    "random_iterative",
+    "static_mixed"
+  ],
+  "matched_budget": {
+    "shared_generation_budget": true,
+    "shared_hard_negative_budget": true,
+    "shared_parent_budget": true,
+    "shared_training_budget": true,
+    "fixed_round_checkpoints": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "same_split_seed_across_methods": true,
+    "same_A_final_seed_across_methods": true
+  },
+  "reporting": {
+    "ordered_split_assignments_are_not_independent_subjects": true,
+    "aggregate_by_test_participant": true
+  }
+}
